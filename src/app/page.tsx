@@ -9,6 +9,8 @@ import { Send, Bot, User, Settings, Moon, Sun, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownMessage } from "@/components/markdown-message";
 import { ConversationSidebar } from "@/components/conversation-sidebar";
+import { TokenDisplay } from "@/components/token-display";
+import { ConversationStats } from "@/components/conversation-stats";
 
 interface Message {
   id: string;
@@ -286,6 +288,12 @@ export default function ChatPage() {
                   • Conversation saved
                 </span>
               )}
+              {messages.length > 0 && (
+                <ConversationStats
+                  messages={messages}
+                  className="hidden sm:flex"
+                />
+              )}
             </div>
             <div className="flex items-center space-x-2">
               <Button
@@ -381,13 +389,19 @@ export default function ChatPage() {
                       )}
                       <div
                         className={cn(
-                          "text-xs mt-2 opacity-70",
+                          "text-xs mt-2 opacity-70 flex items-center justify-between",
                           message.role === "user"
                             ? "text-primary-foreground"
                             : "text-muted-foreground"
                         )}
                       >
-                        {message.timestamp.toLocaleTimeString()}
+                        <span>{message.timestamp.toLocaleTimeString()}</span>
+                        <TokenDisplay
+                          content={message.content}
+                          role={message.role}
+                          showInline
+                          className="ml-2"
+                        />
                       </div>
                     </Card>
                   </div>
