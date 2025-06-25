@@ -241,30 +241,73 @@ export class ConversationExporter {
     content: string,
     role: "user" | "assistant"
   ): string {
-    // Preserve all semantic content while minimizing tokens
+    // First, handle code blocks separately to preserve their formatting
+    const codeBlocks: { placeholder: string; content: string }[] = [];
     let compressed = content;
 
-    // Remove excessive whitespace but preserve structure
+    // Extract and preserve code blocks first
+    compressed = compressed.replace(
+      /```(\w+)?\n([\s\S]*?)```/g,
+      (match, lang, code) => {
+        const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+
+        // Languages where indentation is critical
+        const indentationSensitive = [
+          "python",
+          "yaml",
+          "yml",
+          "dockerfile",
+          "makefile",
+          "coffeescript",
+          "pug",
+          "jade",
+          "stylus",
+          "sass",
+          "haml",
+          "nim",
+          "haskell",
+          "elm",
+          "f#",
+          "fsharp",
+          "ocaml",
+          "purescript",
+          "lean",
+          "agda",
+          "idris",
+        ];
+
+        const langLower = (lang || "").toLowerCase();
+
+        if (indentationSensitive.includes(langLower) || !lang) {
+          // Preserve ALL formatting for indentation-sensitive languages
+          codeBlocks.push({
+            placeholder,
+            content: `\`\`\`${lang || ""}\n${code}\`\`\``,
+          });
+        } else {
+          // Light compression for other languages - remove trailing spaces only
+          const lightlyCompressed = code
+            .split("\n")
+            .map((line) => line.trimEnd())
+            .join("\n");
+          codeBlocks.push({
+            placeholder,
+            content: `\`\`\`${lang}\n${lightlyCompressed}\`\`\``,
+          });
+        }
+
+        return placeholder;
+      }
+    );
+
+    // Now compress the non-code content
     compressed = compressed
       .replace(/\n\s*\n\s*\n/g, "\n\n") // Max 2 consecutive newlines
       .replace(/[ \t]+/g, " ") // Multiple spaces/tabs to single space
       .replace(/\n /g, "\n") // Remove space after newline
       .trim();
 
-    // For code blocks, preserve structure but minimize whitespace
-    compressed = compressed.replace(
-      /```(\w+)?\n([\s\S]*?)```/g,
-      (match, lang, code) => {
-        const minifiedCode = code
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0)
-          .join("\n");
-        return `\`\`\`${lang || ""}\n${minifiedCode}\`\`\``;
-      }
-    );
-
-    // For assistant responses, preserve structure but compress
+    // For assistant responses, compress markdown but not code
     if (role === "assistant") {
       // Compress markdown headers
       compressed = compressed.replace(/^#{1,6}\s+/gm, "#");
@@ -273,6 +316,11 @@ export class ConversationExporter {
       // Compress numbered lists
       compressed = compressed.replace(/^\s*\d+\.\s+/gm, "1. ");
     }
+
+    // Restore code blocks with preserved formatting
+    codeBlocks.forEach(({ placeholder, content }) => {
+      compressed = compressed.replace(placeholder, content);
+    });
 
     return compressed;
   }

@@ -11,6 +11,7 @@ import {
 import { Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { cn } from "@/lib/utils";
 
 interface MarkdownMessageProps {
   content: string;
@@ -94,8 +95,9 @@ export const MarkdownMessage = memo(
         <ReactMarkdown
           components={{
             code: (props) => <CodeBlock {...props} isDark={isDark} />,
-            pre: ({ children }) => <>{children}</>,
-            // Custom styling for other elements
+            pre: ({ children }) => {
+              return <>{children}</>;
+            },
             h1: ({ children }) => (
               <h1 className="text-xl font-bold mt-6 mb-4 first:mt-0">
                 {children}
@@ -112,7 +114,7 @@ export const MarkdownMessage = memo(
               </h3>
             ),
             p: ({ children }) => (
-              <p className="mb-3 last:mb-0 leading-relaxed">{children}</p>
+              <div className="mb-3 last:mb-0 leading-relaxed">{children}</div>
             ),
             ul: ({ children }) => (
               <ul className="list-disc ml-6 mb-3 space-y-1">{children}</ul>
