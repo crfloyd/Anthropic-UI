@@ -10,7 +10,7 @@ const anthropic = new Anthropic({
 
 export async function POST(request: NextRequest) {
   try {
-    const { messages, conversationId } = await request.json();
+    const { messages, conversationId, settings } = await request.json();
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
@@ -19,12 +19,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!process.env.ANTHROPIC_API_KEY) {
+    // Use API key from request or fallback to environment
+    const apiKey = settings?.apiKey || process.env.ANTHROPIC_API_KEY;
+
+    if (!apiKey) {
       return NextResponse.json(
-        { error: "ANTHROPIC_API_KEY is not configured" },
-        { status: 500 }
+        { error: "API key is required. Please configure it in settings." },
+        { status: 400 }
       );
     }
+
+    // Initialize Anthropic client with provided API key
+    const anthropic = new Anthropic({
+      apiKey: apiKey,
+    });
+
+    // Get model and parameters from settings
+    const model = settings?.model || "claude-3-5-sonnet-20241022";
+    const maxTokens = settings?.maxTokens || 4096;
+    const temperature = settings?.temperature || 0.7;
 
     // Get the latest user message
     const latestUserMessage = messages[messages.length - 1];
@@ -67,8 +80,9 @@ export async function POST(request: NextRequest) {
 
         try {
           const messageStream = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20241022",
-            max_tokens: 4096,
+            model: model,
+            max_tokens: maxTokens,
+            temperature: temperature,
             messages: anthropicMessages,
             stream: true,
           });

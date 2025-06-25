@@ -21,7 +21,9 @@ import { ConversationSidebar } from "@/components/conversation-sidebar";
 import { TokenDisplay } from "@/components/token-display";
 import { ConversationStats } from "@/components/conversation-stats";
 import { ContextManager } from "@/components/context-manager";
+import { SettingsPanel } from "@/components/settings-panel";
 import { getContextStatus, MessageWithTokens } from "@/lib/tokens";
+import { useSettings } from "@/lib/settings";
 
 interface Message {
   id: string;
@@ -51,6 +53,8 @@ export default function ChatPage() {
   >(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isContextManagerOpen, setIsContextManagerOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const { settings } = useSettings();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -62,6 +66,16 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
+  // Apply dark mode from settings
+  useEffect(() => {
+    setIsDark(settings.darkMode);
+    if (settings.darkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  }, [settings.darkMode]);
+
   // Check context status and auto-open context manager if critical
   useEffect(() => {
     if (messages.length > 0) {
@@ -72,12 +86,57 @@ export default function ChatPage() {
 
       const contextStatus = getContextStatus(messagesWithTokens);
 
-      // Auto-open context manager if emergency status
-      if (contextStatus.status === "emergency" && !isContextManagerOpen) {
+      // Auto-open context manager if emergency status and auto-trim is disabled
+      if (
+        contextStatus.status === "emergency" &&
+        !settings.autoTrim &&
+        !isContextManagerOpen
+      ) {
         setIsContextManagerOpen(true);
       }
+
+      // Auto-trim if enabled and threshold reached
+      if (
+        settings.autoTrim &&
+        contextStatus.percentage >= settings.autoTrimThreshold
+      ) {
+        handleAutoTrim(messagesWithTokens, contextStatus);
+      }
     }
-  }, [messages, isContextManagerOpen]);
+  }, [
+    messages,
+    isContextManagerOpen,
+    settings.autoTrim,
+    settings.autoTrimThreshold,
+  ]);
+
+  const handleAutoTrim = (
+    messagesWithTokens: MessageWithTokens[],
+    contextStatus: any
+  ) => {
+    // Auto-trim to 50% of context limit
+    const targetTokens = Math.floor(contextStatus.limit * 0.5);
+
+    // Simple recent-message trimming
+    let currentTokens = 0;
+    const trimmedMessages: Message[] = [];
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      const msgTokens = msg.content.length / 4; // Rough estimate
+
+      if (currentTokens + msgTokens <= targetTokens) {
+        trimmedMessages.unshift(msg);
+        currentTokens += msgTokens;
+      } else {
+        break;
+      }
+    }
+
+    if (trimmedMessages.length < messages.length) {
+      setMessages(trimmedMessages);
+    }
+  };
 
   const generateConversationTitle = (firstMessage: string): string => {
     // Generate a title from the first message (first 50 characters)
@@ -202,6 +261,12 @@ export default function ChatPage() {
         body: JSON.stringify({
           messages: currentMessages,
           conversationId: conversationId,
+          settings: {
+            apiKey: settings.apiKey,
+            model: settings.model,
+            temperature: settings.temperature,
+            maxTokens: settings.maxTokens,
+          },
         }),
       });
 
@@ -281,8 +346,10 @@ export default function ChatPage() {
   };
 
   const toggleTheme = () => {
-    setIsDark(!isDark);
-    document.documentElement.classList.toggle("dark");
+    const newDarkMode = !isDark;
+    setIsDark(newDarkMode);
+    // Update settings instead of manual class toggle
+    // Settings effect will handle the class toggle
   };
 
   const toggleSidebar = () => {
@@ -291,6 +358,10 @@ export default function ChatPage() {
 
   const toggleContextManager = () => {
     setIsContextManagerOpen(!isContextManagerOpen);
+  };
+
+  const toggleSettings = () => {
+    setIsSettingsOpen(!isSettingsOpen);
   };
 
   // Get current context status for UI indicators
@@ -377,7 +448,12 @@ export default function ChatPage() {
                   <Moon className="h-4 w-4" />
                 )}
               </Button>
-              <Button variant="ghost" size="icon" className="rounded-full">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full"
+                onClick={toggleSettings}
+              >
                 <Settings className="h-4 w-4" />
               </Button>
             </div>
@@ -396,6 +472,12 @@ export default function ChatPage() {
               />
             </div>
           )}
+
+          {/* Settings Panel */}
+          <SettingsPanel
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+          />
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto space-y-4 mb-4">
