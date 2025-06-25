@@ -5,12 +5,23 @@ import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Send, Bot, User, Settings, Moon, Sun, Menu } from "lucide-react";
+import {
+  Send,
+  Bot,
+  User,
+  Settings,
+  Moon,
+  Sun,
+  Menu,
+  BarChart3,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownMessage } from "@/components/markdown-message";
 import { ConversationSidebar } from "@/components/conversation-sidebar";
 import { TokenDisplay } from "@/components/token-display";
 import { ConversationStats } from "@/components/conversation-stats";
+import { ContextManager } from "@/components/context-manager";
+import { getContextStatus, MessageWithTokens } from "@/lib/tokens";
 
 interface Message {
   id: string;
@@ -39,6 +50,7 @@ export default function ChatPage() {
     string | null
   >(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isContextManagerOpen, setIsContextManagerOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -49,6 +61,23 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Check context status and auto-open context manager if critical
+  useEffect(() => {
+    if (messages.length > 0) {
+      const messagesWithTokens: MessageWithTokens[] = messages.map((msg) => ({
+        ...msg,
+        tokens: undefined, // Will be calculated by getContextStatus
+      }));
+
+      const contextStatus = getContextStatus(messagesWithTokens);
+
+      // Auto-open context manager if emergency status
+      if (contextStatus.status === "emergency" && !isContextManagerOpen) {
+        setIsContextManagerOpen(true);
+      }
+    }
+  }, [messages, isContextManagerOpen]);
 
   const generateConversationTitle = (firstMessage: string): string => {
     // Generate a title from the first message (first 50 characters)
@@ -113,6 +142,20 @@ export default function ChatPage() {
     setMessages([]);
     setCurrentConversationId(null);
     setIsSidebarOpen(false); // Close sidebar on mobile
+    setIsContextManagerOpen(false); // Close context manager
+  };
+
+  const handleTrimConversation = (trimmedMessages: MessageWithTokens[]) => {
+    // Convert MessageWithTokens back to Message
+    const convertedMessages: Message[] = trimmedMessages.map((msg) => ({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp,
+    }));
+
+    setMessages(convertedMessages);
+    setIsContextManagerOpen(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -246,6 +289,17 @@ export default function ChatPage() {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
+  const toggleContextManager = () => {
+    setIsContextManagerOpen(!isContextManagerOpen);
+  };
+
+  // Get current context status for UI indicators
+  const messagesWithTokens: MessageWithTokens[] = messages.map((msg) => ({
+    ...msg,
+    tokens: undefined,
+  }));
+  const contextStatus = getContextStatus(messagesWithTokens);
+
   return (
     <div
       className={cn(
@@ -299,6 +353,21 @@ export default function ChatPage() {
               <Button
                 variant="ghost"
                 size="icon"
+                onClick={toggleContextManager}
+                className={cn(
+                  "rounded-full",
+                  contextStatus.status === "emergency" &&
+                    "text-red-600 animate-pulse",
+                  contextStatus.status === "critical" && "text-orange-600",
+                  contextStatus.status === "warning" && "text-yellow-600"
+                )}
+                title="Context Management"
+              >
+                <BarChart3 className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={toggleTheme}
                 className="rounded-full"
               >
@@ -317,6 +386,17 @@ export default function ChatPage() {
 
         {/* Chat Container */}
         <div className="container mx-auto max-w-4xl px-4 py-6 flex flex-col h-[calc(100vh-80px)]">
+          {/* Context Manager Modal */}
+          {isContextManagerOpen && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <ContextManager
+                messages={messagesWithTokens}
+                onTrimConversation={handleTrimConversation}
+                onClose={() => setIsContextManagerOpen(false)}
+              />
+            </div>
+          )}
+
           {/* Messages */}
           <div className="flex-1 overflow-y-auto space-y-4 mb-4">
             {messages.length === 0 ? (

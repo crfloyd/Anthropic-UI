@@ -14,8 +14,14 @@ import {
   calculateCost,
   formatCost,
   getTotalConversationTokens,
+  getContextStatus,
 } from "@/lib/tokens";
-import { BarChart3, DollarSign, MessageSquare } from "lucide-react";
+import {
+  BarChart3,
+  DollarSign,
+  MessageSquare,
+  AlertTriangle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -48,10 +54,17 @@ export const ConversationStats = memo(
     const outputCost = calculateCost(outputTokens, model, "output");
     const totalCost = inputCost + outputCost;
 
-    // Context window warning (Claude 3.5 Sonnet has 200K context)
-    const contextLimit = 200000;
-    const contextUsagePercent = (totalTokens / contextLimit) * 100;
-    const isNearLimit = contextUsagePercent > 80;
+    // Get context status for warnings
+    const contextStatus = getContextStatus(
+      messages.map((m) => ({
+        ...m,
+        id: String(Math.random()),
+        timestamp: new Date(),
+      })),
+      model
+    );
+
+    const isNearLimit = contextStatus.status !== "safe";
 
     return (
       <div className={cn("flex items-center gap-2 text-xs", className)}>
@@ -84,9 +97,15 @@ export const ConversationStats = memo(
                 variant="outline"
                 className={cn(
                   "gap-1 font-mono",
-                  isNearLimit && "border-orange-500 text-orange-600"
+                  contextStatus.status === "emergency" &&
+                    "border-red-500 text-red-600",
+                  contextStatus.status === "critical" &&
+                    "border-orange-500 text-orange-600",
+                  contextStatus.status === "warning" &&
+                    "border-yellow-500 text-yellow-600"
                 )}
               >
+                {isNearLimit && <AlertTriangle className="h-3 w-3" />}
                 <BarChart3 className="h-3 w-3" />
                 {totalTokens.toLocaleString()}
               </Badge>
@@ -111,15 +130,36 @@ export const ConversationStats = memo(
                   <span
                     className={cn(
                       "font-mono",
-                      isNearLimit ? "text-orange-600" : "text-green-600"
+                      contextStatus.status === "emergency"
+                        ? "text-red-600"
+                        : contextStatus.status === "critical"
+                        ? "text-orange-600"
+                        : contextStatus.status === "warning"
+                        ? "text-yellow-600"
+                        : "text-green-600"
                     )}
                   >
-                    {contextUsagePercent.toFixed(1)}%
+                    {(contextStatus.percentage * 100).toFixed(1)}% (
+                    {totalTokens}/{contextStatus.limit.toLocaleString()})
                   </span>
                 </div>
                 {isNearLimit && (
-                  <div className="text-xs text-orange-600 border-t pt-1">
-                    ⚠️ Approaching context limit
+                  <div
+                    className={cn(
+                      "text-xs border-t pt-1",
+                      contextStatus.status === "emergency"
+                        ? "text-red-600"
+                        : contextStatus.status === "critical"
+                        ? "text-orange-600"
+                        : "text-yellow-600"
+                    )}
+                  >
+                    {contextStatus.status === "emergency" &&
+                      "🚨 Emergency: Trim conversation immediately!"}
+                    {contextStatus.status === "critical" &&
+                      "⚠️ Critical: Consider trimming conversation"}
+                    {contextStatus.status === "warning" &&
+                      "⚠️ Warning: Approaching context limit"}
                   </div>
                 )}
               </div>
