@@ -14,6 +14,7 @@ import {
   Sun,
   Menu,
   BarChart3,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownMessage } from "@/components/markdown-message";
@@ -22,6 +23,7 @@ import { TokenDisplay } from "@/components/token-display";
 import { ConversationStats } from "@/components/conversation-stats";
 import { ContextManager } from "@/components/context-manager";
 import { SettingsPanel } from "@/components/settings-panel";
+import { ExportDialog } from "@/components/export-dialog";
 import { getContextStatus, MessageWithTokens } from "@/lib/tokens";
 import { useSettings } from "@/lib/settings";
 
@@ -54,6 +56,7 @@ export default function ChatPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isContextManagerOpen, setIsContextManagerOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isExportOpen, setIsExportOpen] = useState(false);
   const { settings } = useSettings();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -364,6 +367,30 @@ export default function ChatPage() {
     setIsSettingsOpen(!isSettingsOpen);
   };
 
+  const toggleExport = () => {
+    setIsExportOpen(!isExportOpen);
+  };
+
+  // Prepare conversation data for export
+  const exportConversation =
+    currentConversationId && messages.length > 0
+      ? {
+          id: currentConversationId,
+          title:
+            messages.length > 0
+              ? messages[0].content.length > 50
+                ? messages[0].content.substring(0, 50) + "..."
+                : messages[0].content
+              : "New Conversation",
+          messages: messages,
+          createdAt: messages.length > 0 ? messages[0].timestamp : new Date(),
+          updatedAt:
+            messages.length > 0
+              ? messages[messages.length - 1].timestamp
+              : new Date(),
+        }
+      : null;
+
   // Get current context status for UI indicators
   const messagesWithTokens: MessageWithTokens[] = messages.map((msg) => ({
     ...msg,
@@ -421,6 +448,18 @@ export default function ChatPage() {
               )}
             </div>
             <div className="flex items-center space-x-2">
+              {/* Export button - show when we have messages */}
+              {messages.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleExport}
+                  className="rounded-full"
+                  title="Export Conversation"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -477,6 +516,13 @@ export default function ChatPage() {
           <SettingsPanel
             isOpen={isSettingsOpen}
             onClose={() => setIsSettingsOpen(false)}
+          />
+
+          {/* Export Dialog */}
+          <ExportDialog
+            isOpen={isExportOpen}
+            onClose={() => setIsExportOpen(false)}
+            conversation={exportConversation}
           />
 
           {/* Messages */}
