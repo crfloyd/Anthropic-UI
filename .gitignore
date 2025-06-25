@@ -108,3 +108,5 @@ Thumbs.db
 
 # Sentry
 .sentryclirc
+
+/src/generated/prisma
