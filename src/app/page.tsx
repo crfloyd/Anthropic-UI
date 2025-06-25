@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Send, Bot, User, Settings, Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MarkdownMessage } from "@/components/mardown-message";
 
 interface Message {
   id: string;
@@ -238,11 +239,18 @@ export default function ChatPage() {
                         : "bg-card"
                     )}
                   >
-                    <div className="prose prose-sm max-w-none dark:prose-invert">
-                      <p className="whitespace-pre-wrap m-0">
-                        {message.content}
-                      </p>
-                    </div>
+                    {message.role === "assistant" ? (
+                      <MarkdownMessage
+                        content={message.content}
+                        isDark={isDark}
+                      />
+                    ) : (
+                      <div className="prose prose-sm max-w-none dark:prose-invert">
+                        <p className="whitespace-pre-wrap m-0">
+                          {message.content}
+                        </p>
+                      </div>
+                    )}
                     <div
                       className={cn(
                         "text-xs mt-2 opacity-70",
