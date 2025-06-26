@@ -761,7 +761,7 @@ export default function ChatPage() {
                           "p-4",
                           message.role === "user"
                             ? "bg-muted/50 dark:bg-muted/30"
-                            : "bg-card"
+                            : "bg-transparent border-none shadow-none"
                         )}
                       >
                         {messageActions.isEditing(index) ? (

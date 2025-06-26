@@ -75,7 +75,7 @@ const CodeBlock = memo(
 
     // Handle code blocks (triple backticks)
     return (
-      <div className="relative group w-full max-w-full">
+      <div className="relative group w-full max-w-full mb-4">
         <div className="flex items-center justify-between bg-muted px-4 py-2 rounded-t-lg border-b">
           <span className="text-sm font-medium text-muted-foreground">
             {language || "code"}
