@@ -62,6 +62,37 @@ export default function ChatPage() {
   const [isExportOpen, setIsExportOpen] = useState(false);
   const { settings } = useSettings();
 
+  // Load theme preference from localStorage on mount
+  useEffect(() => {
+    // Avoid hydration mismatch by checking if we're in the browser
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("claude-chat-theme");
+      if (savedTheme) {
+        const isDarkMode = savedTheme === "dark";
+        setIsDark(isDarkMode);
+        if (isDarkMode) {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+        }
+      } else {
+        // Check system preference if no saved preference
+        const prefersDark = window.matchMedia(
+          "(prefers-color-scheme: dark)"
+        ).matches;
+        setIsDark(prefersDark);
+        if (prefersDark) {
+          document.documentElement.classList.add("dark");
+        }
+        // Save the initial preference
+        localStorage.setItem(
+          "claude-chat-theme",
+          prefersDark ? "dark" : "light"
+        );
+      }
+    }
+  }, []);
+
   // Message actions hook
   const messageActions = useMessageActions({
     messages,
@@ -91,16 +122,6 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  // Apply dark mode from settings
-  useEffect(() => {
-    setIsDark(settings.darkMode);
-    if (settings.darkMode) {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-  }, [settings.darkMode]);
 
   // Check context status and auto-open context manager if critical
   useEffect(() => {
@@ -393,8 +414,18 @@ export default function ChatPage() {
   const toggleTheme = () => {
     const newDarkMode = !isDark;
     setIsDark(newDarkMode);
-    // Update settings instead of manual class toggle
-    // Settings effect will handle the class toggle
+
+    // Update DOM classes
+    if (newDarkMode) {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+
+    // Save preference to localStorage (with safety check)
+    if (typeof window !== "undefined") {
+      localStorage.setItem("claude-chat-theme", newDarkMode ? "dark" : "light");
+    }
   };
 
   const toggleSidebar = () => {
@@ -569,8 +600,15 @@ export default function ChatPage() {
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+            {/* Copy feedback */}
+            {messageActions.copyFeedback && (
+              <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-4 py-2 rounded-md shadow-lg">
+                {messageActions.copyFeedback}
+              </div>
+            )}
+
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center">
+              <div className="flex flex-col items-center justify-center h-full text-center py-20">
                 <Bot className="h-12 w-12 text-muted-foreground mb-4" />
                 <h2 className="text-xl font-semibold mb-2">
                   Welcome to Claude API Chat
@@ -584,17 +622,17 @@ export default function ChatPage() {
                 </p>
               </div>
             ) : (
-              messages.map((message) => (
+              messages.map((message, index) => (
                 <div
                   key={message.id}
                   className={cn(
-                    "flex w-full",
+                    "flex w-full group relative",
                     message.role === "user" ? "justify-end" : "justify-start"
                   )}
                 >
                   <div
                     className={cn(
-                      "flex max-w-[85%] space-x-3",
+                      "flex max-w-[85%] space-x-3 relative",
                       message.role === "user"
                         ? "flex-row-reverse space-x-reverse"
                         : "flex-row"
@@ -625,35 +663,77 @@ export default function ChatPage() {
                           : "bg-card"
                       )}
                     >
-                      {message.role === "assistant" ? (
-                        <MarkdownMessage
-                          content={message.content}
-                          isDark={isDark}
+                      {messageActions.isEditing(index) ? (
+                        <MessageActions
+                          message={message}
+                          messageIndex={index}
+                          onEdit={messageActions.handleEdit}
+                          onRegenerate={messageActions.handleRegenerate}
+                          onBranch={messageActions.handleBranch}
+                          onDelete={messageActions.handleDelete}
+                          onCopy={messageActions.handleCopy}
+                          isEditing={true}
+                          onStartEdit={() => messageActions.startEdit(index)}
+                          onCancelEdit={messageActions.cancelEdit}
                         />
                       ) : (
-                        <div className="prose prose-sm max-w-none dark:prose-invert">
-                          <p className="whitespace-pre-wrap m-0">
-                            {message.content}
-                          </p>
-                        </div>
+                        <>
+                          {message.role === "assistant" ? (
+                            <MarkdownMessage
+                              content={message.content}
+                              isDark={isDark}
+                            />
+                          ) : (
+                            <div className="prose prose-sm max-w-none dark:prose-invert">
+                              <p className="whitespace-pre-wrap m-0">
+                                {message.content}
+                              </p>
+                            </div>
+                          )}
+                          <div
+                            className={cn(
+                              "text-xs mt-2 opacity-70 flex items-center justify-between",
+                              message.role === "user"
+                                ? "text-primary-foreground"
+                                : "text-muted-foreground"
+                            )}
+                          >
+                            <span>
+                              {message.timestamp.toLocaleTimeString()}
+                            </span>
+                            <TokenDisplay
+                              content={message.content}
+                              role={message.role}
+                              showInline
+                              className="ml-2"
+                            />
+                          </div>
+                        </>
                       )}
+                    </Card>
+
+                    {/* Message Actions - positioned next to the message bubble */}
+                    {!messageActions.isEditing(index) && (
                       <div
                         className={cn(
-                          "text-xs mt-2 opacity-70 flex items-center justify-between",
-                          message.role === "user"
-                            ? "text-primary-foreground"
-                            : "text-muted-foreground"
+                          "absolute top-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200",
+                          message.role === "user" ? "-left-10" : "-right-10"
                         )}
                       >
-                        <span>{message.timestamp.toLocaleTimeString()}</span>
-                        <TokenDisplay
-                          content={message.content}
-                          role={message.role}
-                          showInline
-                          className="ml-2"
+                        <MessageActions
+                          message={message}
+                          messageIndex={index}
+                          onEdit={messageActions.handleEdit}
+                          onRegenerate={messageActions.handleRegenerate}
+                          onBranch={messageActions.handleBranch}
+                          onDelete={messageActions.handleDelete}
+                          onCopy={messageActions.handleCopy}
+                          isEditing={false}
+                          onStartEdit={() => messageActions.startEdit(index)}
+                          onCancelEdit={messageActions.cancelEdit}
                         />
                       </div>
-                    </Card>
+                    )}
                   </div>
                 </div>
               ))
