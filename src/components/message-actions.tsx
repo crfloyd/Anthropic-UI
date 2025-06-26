@@ -1,7 +1,7 @@
 // src/components/message-actions.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -23,6 +23,7 @@ import {
   Share,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { createPortal } from "react-dom";
 
 interface Message {
   id: string;
@@ -60,6 +61,8 @@ export function MessageActions({
 }: MessageActionsProps) {
   const [editContent, setEditContent] = useState(message.content);
   const [showActions, setShowActions] = useState(false);
+  const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
   const handleSaveEdit = () => {
     if (editContent.trim() !== message.content) {
@@ -95,6 +98,38 @@ export function MessageActions({
     }
     setShowActions(false);
   };
+
+  const handleToggleActions = () => {
+    if (!showActions && buttonRef.current) {
+      // Calculate position relative to viewport
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPosition({
+        x: rect.right - 180, // Position menu to the left of button
+        y: rect.bottom + 4, // Position below button
+      });
+    }
+    setShowActions(!showActions);
+  };
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        showActions &&
+        buttonRef.current &&
+        !buttonRef.current.contains(event.target as Node)
+      ) {
+        // Check if click is inside the menu
+        const menuElement = document.getElementById(`menu-${message.id}`);
+        if (menuElement && !menuElement.contains(event.target as Node)) {
+          setShowActions(false);
+        }
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showActions, message.id]);
 
   if (isEditing) {
     return (
@@ -146,9 +181,10 @@ export function MessageActions({
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
+              ref={buttonRef}
               variant="ghost"
               size="icon"
-              onClick={() => setShowActions(!showActions)}
+              onClick={handleToggleActions}
               className={cn(
                 "h-6 w-6 rounded-full bg-background border border-border shadow-sm",
                 "opacity-0 group-hover:opacity-100 transition-opacity",
@@ -162,82 +198,84 @@ export function MessageActions({
         </Tooltip>
       </TooltipProvider>
 
-      {/* Actions Menu */}
-      {showActions && (
-        <Card className="absolute right-0 top-6 z-50 p-2 min-w-[180px] shadow-lg">
-          <div className="space-y-1">
-            {/* Copy */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleCopy}
-              className="w-full justify-start"
-            >
-              <Copy className="h-3 w-3 mr-2" />
-              Copy message
-            </Button>
-
-            {/* Edit */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                onStartEdit();
-                setShowActions(false);
-              }}
-              className="w-full justify-start"
-            >
-              <Edit3 className="h-3 w-3 mr-2" />
-              Edit message
-            </Button>
-
-            {/* Regenerate (only for assistant messages) */}
-            {message.role === "assistant" && (
+      {/* Actions Menu - Rendered as Portal */}
+      {showActions &&
+        typeof window !== "undefined" &&
+        createPortal(
+          <Card
+            id={`menu-${message.id}`}
+            className="fixed z-50 p-2 shadow-lg w-fit"
+            style={{
+              left: `${menuPosition.x}px`,
+              top: `${menuPosition.y}px`,
+            }}
+          >
+            <div className="space-y-1">
+              {/* Copy */}
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={handleRegenerate}
+                onClick={handleCopy}
                 className="w-full justify-start"
               >
-                <RefreshCw className="h-3 w-3 mr-2" />
-                Regenerate response
+                <Copy className="h-3 w-3 mr-2" />
+                Copy message
               </Button>
-            )}
 
-            {/* Branch conversation */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleBranch}
-              className="w-full justify-start"
-            >
-              <GitBranch className="h-3 w-3 mr-2" />
-              Branch from here
-            </Button>
+              {/* Edit */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onStartEdit();
+                  setShowActions(false);
+                }}
+                className="w-full justify-start"
+              >
+                <Edit3 className="h-3 w-3 mr-2" />
+                Edit message
+              </Button>
 
-            <div className="border-t border-border my-1" />
+              {/* Regenerate (only for assistant messages) */}
+              {message.role === "assistant" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleRegenerate}
+                  className="w-full justify-start"
+                >
+                  <RefreshCw className="h-3 w-3 mr-2" />
+                  Regenerate response
+                </Button>
+              )}
 
-            {/* Delete */}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleDelete}
-              className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50"
-            >
-              <Trash2 className="h-3 w-3 mr-2" />
-              Delete from here
-            </Button>
-          </div>
-        </Card>
-      )}
+              {/* Branch conversation */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleBranch}
+                className="w-full justify-start"
+              >
+                <GitBranch className="h-3 w-3 mr-2" />
+                Branch from here
+              </Button>
 
-      {/* Click away to close menu */}
-      {showActions && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setShowActions(false)}
-        />
-      )}
+              <div className="border-t border-border my-1" />
+
+              {/* Delete */}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleDelete}
+                className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="h-3 w-3 mr-2" />
+                Delete from here
+              </Button>
+            </div>
+          </Card>,
+          document.body
+        )}
     </div>
   );
 }

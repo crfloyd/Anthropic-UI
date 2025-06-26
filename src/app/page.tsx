@@ -25,21 +25,13 @@ import { ConversationStats } from "@/components/conversation-stats";
 import { ContextManager } from "@/components/context-manager";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ExportDialog } from "@/components/export-dialog";
-import { MessageActions } from "@/components/message-actions";
+import { CopyMessageButton } from "@/components/copy-message-button";
+import { EditMessageButton } from "@/components/edit-message-button";
 import { FileUpload, UploadedFile } from "@/components/file-upload";
 import { MessageFiles, FileAttachment } from "@/components/message-files";
 import { getContextStatus, MessageWithTokens } from "@/lib/tokens";
 import { useSettings } from "@/lib/settings";
 import { useMessageActions } from "@/hooks/use-message-actions";
-
-interface FileAttachment {
-  id: string;
-  name: string;
-  size: number;
-  type: string;
-  content?: string; // For text files, base64 for images
-  url?: string; // If stored somewhere
-}
 
 interface Message {
   id: string;
@@ -75,51 +67,19 @@ export default function ChatPage() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const { settings } = useSettings();
 
-  // Load theme preference from localStorage on mount
-  useEffect(() => {
-    // Avoid hydration mismatch by checking if we're in the browser
-    if (typeof window !== "undefined") {
-      const savedTheme = localStorage.getItem("claude-chat-theme");
-      if (savedTheme) {
-        const isDarkMode = savedTheme === "dark";
-        setIsDark(isDarkMode);
-        if (isDarkMode) {
-          document.documentElement.classList.add("dark");
-        } else {
-          document.documentElement.classList.remove("dark");
-        }
-      } else {
-        // Check system preference if no saved preference
-        const prefersDark = window.matchMedia(
-          "(prefers-color-scheme: dark)"
-        ).matches;
-        setIsDark(prefersDark);
-        if (prefersDark) {
-          document.documentElement.classList.add("dark");
-        }
-        // Save the initial preference
-        localStorage.setItem(
-          "claude-chat-theme",
-          prefersDark ? "dark" : "light"
-        );
-      }
-    }
-  }, []);
-
-  // Message actions hook
+  // Message actions hook (simplified)
   const messageActions = useMessageActions({
     messages,
     setMessages,
     onRegenerateFromIndex: (index) => {
-      // Regenerate from a specific message index
+      // When editing a user message, regenerate from that point
       const userMessage = messages[index];
       if (userMessage && userMessage.role === "user") {
         handleRegenerateFromMessage(userMessage, index);
       }
     },
     onCreateBranch: (fromIndex, branchMessages) => {
-      // For now, just create a new conversation
-      // Could be enhanced to actually create conversation branches in the database
+      // Create a new conversation branch
       handleNewConversation();
       setMessages(branchMessages);
     },
@@ -213,6 +173,37 @@ export default function ChatPage() {
       setUploadedFiles((prev) => [...prev, ...newUploadedFiles]);
     }
   };
+
+  // Load theme preference from localStorage on mount
+  useEffect(() => {
+    // Avoid hydration mismatch by checking if we're in the browser
+    if (typeof window !== "undefined") {
+      const savedTheme = localStorage.getItem("claude-chat-theme");
+      if (savedTheme) {
+        const isDarkMode = savedTheme === "dark";
+        setIsDark(isDarkMode);
+        if (isDarkMode) {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+        }
+      } else {
+        // Check system preference if no saved preference
+        const prefersDark = window.matchMedia(
+          "(prefers-color-scheme: dark)"
+        ).matches;
+        setIsDark(prefersDark);
+        if (prefersDark) {
+          document.documentElement.classList.add("dark");
+        }
+        // Save the initial preference
+        localStorage.setItem(
+          "claude-chat-theme",
+          prefersDark ? "dark" : "light"
+        );
+      }
+    }
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -333,6 +324,7 @@ export default function ChatPage() {
         role: msg.role as "user" | "assistant",
         content: msg.content,
         timestamp: new Date(msg.timestamp),
+        // Note: You might want to load file attachments from database here
       }));
 
       setMessages(loadedMessages);
@@ -346,6 +338,7 @@ export default function ChatPage() {
   const handleNewConversation = () => {
     setMessages([]);
     setCurrentConversationId(null);
+    setUploadedFiles([]);
     setIsSidebarOpen(false); // Close sidebar on mobile
     setIsContextManagerOpen(false); // Close context manager
   };
@@ -357,6 +350,7 @@ export default function ChatPage() {
       role: msg.role,
       content: msg.content,
       timestamp: msg.timestamp,
+      files: (msg as Message).files, // Preserve files if they exist
     }));
 
     setMessages(convertedMessages);
@@ -705,10 +699,10 @@ export default function ChatPage() {
           />
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+          <div className="flex-1 overflow-y-auto space-y-4 mb-4 relative">
             {/* Copy feedback */}
             {messageActions.copyFeedback && (
-              <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-4 py-2 rounded-md shadow-lg">
+              <div className="fixed top-20 right-4 z-50 bg-green-600 text-white px-3 py-2 rounded-md shadow-lg text-sm">
                 {messageActions.copyFeedback}
               </div>
             )}
@@ -761,94 +755,88 @@ export default function ChatPage() {
                     </div>
 
                     {/* Message Content */}
-                    <Card
-                      className={cn(
-                        "p-4",
-                        message.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-card"
-                      )}
-                    >
-                      {messageActions.isEditing(index) ? (
-                        <MessageActions
-                          message={message}
-                          messageIndex={index}
-                          onEdit={messageActions.handleEdit}
-                          onRegenerate={messageActions.handleRegenerate}
-                          onBranch={messageActions.handleBranch}
-                          onDelete={messageActions.handleDelete}
-                          onCopy={messageActions.handleCopy}
-                          isEditing={true}
-                          onStartEdit={() => messageActions.startEdit(index)}
-                          onCancelEdit={messageActions.cancelEdit}
-                        />
-                      ) : (
-                        <>
-                          {message.role === "assistant" ? (
-                            <MarkdownMessage
-                              content={message.content}
-                              isDark={isDark}
-                            />
-                          ) : (
-                            <div className="prose prose-sm max-w-none dark:prose-invert">
-                              <p className="whitespace-pre-wrap m-0">
-                                {message.content}
-                              </p>
-                            </div>
-                          )}
-
-                          {/* Display file attachments */}
-                          {message.files && message.files.length > 0 && (
-                            <MessageFiles
-                              files={message.files}
-                              messageRole={message.role}
-                            />
-                          )}
-
-                          <div
-                            className={cn(
-                              "text-xs mt-2 opacity-70 flex items-center justify-between",
-                              message.role === "user"
-                                ? "text-primary-foreground"
-                                : "text-muted-foreground"
-                            )}
-                          >
-                            <span>
-                              {message.timestamp.toLocaleTimeString()}
-                            </span>
-                            <TokenDisplay
-                              content={message.content}
-                              role={message.role}
-                              showInline
-                              className="ml-2"
-                            />
-                          </div>
-                        </>
-                      )}
-                    </Card>
-
-                    {/* Message Actions - positioned next to the message bubble */}
-                    {!messageActions.isEditing(index) && (
-                      <div
+                    <div className="relative w-full">
+                      <Card
                         className={cn(
-                          "absolute top-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200",
-                          message.role === "user" ? "-left-10" : "-right-10"
+                          "p-4",
+                          message.role === "user"
+                            ? "bg-muted/50 dark:bg-muted/30"
+                            : "bg-card"
                         )}
                       >
-                        <MessageActions
-                          message={message}
-                          messageIndex={index}
-                          onEdit={messageActions.handleEdit}
-                          onRegenerate={messageActions.handleRegenerate}
-                          onBranch={messageActions.handleBranch}
-                          onDelete={messageActions.handleDelete}
-                          onCopy={messageActions.handleCopy}
-                          isEditing={false}
-                          onStartEdit={() => messageActions.startEdit(index)}
-                          onCancelEdit={messageActions.cancelEdit}
-                        />
-                      </div>
-                    )}
+                        {messageActions.isEditing(index) ? (
+                          <EditMessageButton
+                            message={message}
+                            messageIndex={index}
+                            onEdit={messageActions.handleEdit}
+                            isEditing={true}
+                            onStartEdit={() => messageActions.startEdit(index)}
+                            onCancelEdit={messageActions.cancelEdit}
+                          />
+                        ) : (
+                          <>
+                            {message.role === "assistant" ? (
+                              <MarkdownMessage
+                                content={message.content}
+                                isDark={isDark}
+                              />
+                            ) : (
+                              <div className="prose prose-sm max-w-none dark:prose-invert">
+                                <p className="whitespace-pre-wrap m-0">
+                                  {message.content}
+                                </p>
+                              </div>
+                            )}
+
+                            {/* Display file attachments */}
+                            {message.files && message.files.length > 0 && (
+                              <MessageFiles
+                                files={message.files}
+                                messageRole={message.role}
+                              />
+                            )}
+
+                            <div
+                              className={cn(
+                                "text-xs mt-2 opacity-70 flex items-center justify-between",
+                                "text-muted-foreground"
+                              )}
+                            >
+                              <span>
+                                {message.timestamp.toLocaleTimeString()}
+                              </span>
+                              <TokenDisplay
+                                content={message.content}
+                                role={message.role}
+                                showInline
+                                className="ml-2"
+                              />
+                            </div>
+                          </>
+                        )}
+                      </Card>
+
+                      {/* Action Buttons - positioned below the message */}
+                      {!messageActions.isEditing(index) && (
+                        <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 justify-end">
+                          {/* Copy button for all messages */}
+                          <CopyMessageButton
+                            content={message.content}
+                            onCopy={messageActions.handleCopy}
+                          />
+
+                          {/* Edit button for user messages only */}
+                          <EditMessageButton
+                            message={message}
+                            messageIndex={index}
+                            onEdit={messageActions.handleEdit}
+                            isEditing={false}
+                            onStartEdit={() => messageActions.startEdit(index)}
+                            onCancelEdit={messageActions.cancelEdit}
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))
