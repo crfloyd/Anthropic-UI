@@ -1,36 +1,104 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Claude API Chat
+
+A fully featured, open-source web UI for chatting with Claude via the Anthropic API. Designed for personal use with your own API key. Inspired by claude.ai, but enhanced with features like conversation saving, file attachments, token counting, and export/import support.
+
+Built with Next.js 14 App Router, TypeScript, Tailwind CSS, and shadcn/ui.
+
+---
+
+## Features
+
+- Streaming Responses using Server-Sent Events
+- Conversation Management with auto-title, context trimming, and local persistence (via Prisma + SQLite)
+- Token Counting with context usage breakdown and cost estimates
+- Settings Panel to configure model, temperature, max tokens, and API key
+- File Uploads (text, code, and images with content-aware formatting)
+- Export Conversations as:
+  - Markdown (readable)
+  - JSON (structured)
+  - Compact AI format (optimized for continuation)
+- Context Manager with auto-trim, usage alerts, and visual indicators
+- Artifact Canvas for editing, copying, or downloading generated code
+- Dark/Light Theme with local preference memory
+
+---
+
+## Tech Stack
+
+- Next.js 14 (App Router)
+- TypeScript
+- Tailwind CSS + shadcn/ui
+- Prisma with SQLite (default)
+- Anthropic SDK for Claude API
+- Lucide React Icons
+- Monaco Editor for code blocks
+
+---
 
 ## Getting Started
 
-First, run the development server:
+### 1. Clone the Repo
+
+```bash
+git clone https://github.com/your-username/claude-api-chat.git
+cd claude-api-chat
+```
+
+### 2. Install Dependencies
+
+```bash
+pnpm install
+# or
+npm install
+```
+
+### 3. Configure Your API Key
+
+Create a `.env.local` file in the root directory:
+
+```env
+ANTHROPIC_API_KEY=your_api_key_here
+```
+
+Or enter it manually in the Settings Panel at runtime.
+
+### 4. Setup the Database
+
+```bash
+npx prisma migrate dev --name init
+```
+
+This will create a SQLite DB in `prisma/dev.db` by default.
+
+### 5. Run the App
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Visit [http://localhost:3000](http://localhost:3000) to start chatting.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Project Structure
 
-## Learn More
+- `app/` — Main Next.js App Router layout & routes
+- `components/` — Reusable UI components (markdown renderer, file upload, sidebar, etc.)
+- `lib/` — Token utils, settings, export handlers, Prisma
+- `hooks/` — Custom React hooks
+- `prisma/` — Prisma schema and migrations
+- `public/` — Static assets
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- This project does not sync with claude.ai — conversations are local.
+- Anthropic’s API has no memory — all context must be sent with each call.
+- You are responsible for managing your API token usage and costs.
 
-## Deploy on Vercel
+---
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT License. Use at your own risk. Not affiliated with Anthropic.
