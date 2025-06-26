@@ -11,6 +11,7 @@ import {
 import { Copy, Check, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodeFileAttachment } from "@/components/code-file-attachment";
+import { useSettings } from "@/lib/settings";
 import { cn } from "@/lib/utils";
 
 interface MarkdownMessageProps {
@@ -25,14 +26,11 @@ interface CodeBlockProps {
   children?: React.ReactNode;
   isDark?: boolean;
   onCodeBlockClick?: (code: string, language: string, title?: string) => void;
+  codeBlockSettings: {
+    minLines: number;
+    alwaysInlineMaxLines: number;
+  };
 }
-
-// Thresholds for determining when to show as file attachment vs inline code
-const LARGE_CODE_THRESHOLDS = {
-  LINES: 20,
-  CHARACTERS: 1000,
-  ALWAYS_INLINE_LINES: 5,
-};
 
 // File utilities
 const fileUtils = {
@@ -158,6 +156,7 @@ const CodeBlock = memo(
     children,
     isDark,
     onCodeBlockClick,
+    codeBlockSettings,
     ...props
   }: CodeBlockProps) => {
     const [copied, setCopied] = useState(false);
@@ -184,13 +183,12 @@ const CodeBlock = memo(
 
       const lineCount = codeString.split("\n").length;
 
-      // Make the large code decision immediately and permanently
+      // Make the large code decision using dynamic settings (lines only)
       const isLargeCode =
         !isActuallyInline &&
         onCodeBlockClick &&
-        (lineCount >= LARGE_CODE_THRESHOLDS.LINES ||
-          codeString.length >= LARGE_CODE_THRESHOLDS.CHARACTERS) &&
-        lineCount > LARGE_CODE_THRESHOLDS.ALWAYS_INLINE_LINES;
+        lineCount >= codeBlockSettings.minLines &&
+        lineCount > codeBlockSettings.alwaysInlineMaxLines;
 
       // Generate file metadata only if it's large code
       const fileMetadata = isLargeCode
@@ -209,7 +207,7 @@ const CodeBlock = memo(
         isLargeCode,
         fileMetadata,
       };
-    }, [inline, className, children, onCodeBlockClick]);
+    }, [inline, className, children, onCodeBlockClick, codeBlockSettings]);
 
     const handleCopy = useCallback(async () => {
       try {
@@ -384,6 +382,17 @@ CodeBlock.displayName = "CodeBlock";
 // Memoized main component
 export const MarkdownMessage = memo(
   ({ content, isDark, onCodeBlockClick }: MarkdownMessageProps) => {
+    const { settings } = useSettings();
+
+    // Create code block settings object from user settings
+    const codeBlockSettings = useMemo(
+      () => ({
+        minLines: settings.codeBlockMinLines,
+        alwaysInlineMaxLines: settings.codeBlockAlwaysInlineMaxLines,
+      }),
+      [settings.codeBlockMinLines, settings.codeBlockAlwaysInlineMaxLines]
+    );
+
     // Memoize the markdown components to prevent recreation on every render
     const markdownComponents = useMemo(
       () => ({
@@ -393,6 +402,7 @@ export const MarkdownMessage = memo(
             className={className}
             isDark={isDark}
             onCodeBlockClick={onCodeBlockClick}
+            codeBlockSettings={codeBlockSettings}
             {...props}
           >
             {children}
@@ -455,7 +465,7 @@ export const MarkdownMessage = memo(
           <td className="border border-border px-4 py-2">{children}</td>
         ),
       }),
-      [isDark, onCodeBlockClick]
+      [isDark, onCodeBlockClick, codeBlockSettings]
     );
 
     return (

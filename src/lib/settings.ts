@@ -8,7 +8,9 @@ interface Settings {
   maxTokens: number;
   autoTrim: boolean;
   autoTrimThreshold: number;
-  darkMode: boolean;
+  // Code block display settings
+  codeBlockMinLines: number;
+  codeBlockAlwaysInlineMaxLines: number;
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -18,7 +20,9 @@ const DEFAULT_SETTINGS: Settings = {
   maxTokens: 4096,
   autoTrim: false,
   autoTrimThreshold: 0.8, // 80%
-  darkMode: false,
+  // Code block display defaults (matching current hardcoded values)
+  codeBlockMinLines: 20,
+  codeBlockAlwaysInlineMaxLines: 5,
 };
 
 const SETTINGS_STORAGE_KEY = "claude-api-settings";
@@ -94,6 +98,29 @@ export class SettingsManager {
     return apiKey.startsWith("sk-ant-") && apiKey.length > 20;
   }
 
+  validateCodeBlockSettings(newSettings: Partial<Settings>): string[] {
+    const errors: string[] = [];
+
+    // Merge with current settings to get complete picture
+    const merged = { ...this.settings, ...newSettings };
+
+    if (merged.codeBlockMinLines < 1) {
+      errors.push("Minimum lines must be at least 1");
+    }
+
+    if (merged.codeBlockAlwaysInlineMaxLines < 0) {
+      errors.push("Always inline max lines cannot be negative");
+    }
+
+    if (merged.codeBlockAlwaysInlineMaxLines >= merged.codeBlockMinLines) {
+      errors.push(
+        "Always inline max lines should be less than minimum lines for canvas"
+      );
+    }
+
+    return errors;
+  }
+
   getAvailableModels(): Array<{
     value: string;
     label: string;
@@ -131,6 +158,17 @@ export class SettingsManager {
       const imported = JSON.parse(settingsJson);
       // Don't import API key for security
       delete imported.apiKey;
+
+      // Validate code block settings if present
+      const validationErrors = this.validateCodeBlockSettings(imported);
+      if (validationErrors.length > 0) {
+        console.error(
+          "Validation errors in imported settings:",
+          validationErrors
+        );
+        return false;
+      }
+
       this.updateSettings(imported);
       return true;
     } catch (error) {
@@ -158,12 +196,15 @@ export function useSettings() {
 
   useEffect(() => {
     const manager = SettingsManager.getInstance();
-    const unsubscribe = manager.subscribe(setSettings);
+    const unsubscribe = manager.subscribe((newSettings) => {
+      setSettings(newSettings);
+    });
     return unsubscribe;
   }, []);
 
   const updateSettings = (updates: Partial<Settings>) => {
-    SettingsManager.getInstance().updateSettings(updates);
+    const manager = SettingsManager.getInstance();
+    manager.updateSettings(updates);
   };
 
   return {

@@ -1,7 +1,7 @@
 // src/components/settings-panel.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,6 +38,9 @@ import {
   X,
   Eye,
   EyeOff,
+  Code,
+  FileText,
+  Monitor,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSettings } from "@/lib/settings";
@@ -53,12 +56,38 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [tempApiKey, setTempApiKey] = useState(settings.apiKey);
   const [importData, setImportData] = useState("");
   const [activeTab, setActiveTab] = useState("api");
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Validate settings whenever they change
+  useEffect(() => {
+    try {
+      const validationErrors = manager.validateCodeBlockSettings(settings);
+      if (validationErrors.length > 0) {
+        setValidationError(validationErrors.join(", "));
+      } else {
+        setValidationError(null);
+      }
+    } catch (error) {
+      console.error("Validation error:", error);
+      setValidationError(null);
+    }
+  }, [
+    settings.codeBlockMinLines,
+    settings.codeBlockAlwaysInlineMaxLines,
+    manager,
+    settings,
+  ]);
 
   if (!isOpen) return null;
 
   const handleApiKeyChange = (value: string) => {
     setTempApiKey(value);
     updateSettings({ apiKey: value });
+  };
+
+  const handleCodeBlockSettingChange = (key: string, value: number) => {
+    console.log(`Updating ${key} to ${value}`); // Debug log
+    updateSettings({ [key]: value });
   };
 
   const handleExportSettings = () => {
@@ -264,61 +293,189 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
             {/* Behavior Settings */}
             <TabsContent value="behavior" className="space-y-4">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Auto-trim Conversations</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Automatically trim old messages when approaching context
-                      limits
-                    </p>
-                  </div>
-                  <Switch
-                    checked={settings.autoTrim}
-                    onCheckedChange={(checked) =>
-                      updateSettings({ autoTrim: checked })
-                    }
-                  />
-                </div>
-
-                {settings.autoTrim && (
-                  <div>
-                    <Label className="mb-2 block">
-                      Auto-trim Threshold:{" "}
-                      {Math.round(settings.autoTrimThreshold * 100)}%
-                    </Label>
-                    <Slider
-                      value={[settings.autoTrimThreshold]}
-                      onValueChange={([value]) =>
-                        updateSettings({ autoTrimThreshold: value })
+              <div className="space-y-6">
+                {/* Auto-trim Settings */}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-0.5">
+                      <Label>Auto-trim Conversations</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Automatically trim old messages when approaching context
+                        limits
+                      </p>
+                    </div>
+                    <Switch
+                      checked={settings.autoTrim}
+                      onCheckedChange={(checked) =>
+                        updateSettings({ autoTrim: checked })
                       }
-                      max={0.95}
-                      min={0.5}
-                      step={0.05}
-                      className="mb-2"
                     />
-                    <p className="text-sm text-muted-foreground">
-                      Trim conversation when context usage exceeds this
-                      percentage
-                    </p>
                   </div>
-                )}
+
+                  {settings.autoTrim && (
+                    <div>
+                      <Label className="mb-2 block">
+                        Auto-trim Threshold:{" "}
+                        {Math.round(settings.autoTrimThreshold * 100)}%
+                      </Label>
+                      <Slider
+                        value={[settings.autoTrimThreshold]}
+                        onValueChange={([value]) =>
+                          updateSettings({ autoTrimThreshold: value })
+                        }
+                        max={0.95}
+                        min={0.5}
+                        step={0.05}
+                        className="mb-2"
+                      />
+                      <p className="text-sm text-muted-foreground">
+                        Trim conversation when context usage exceeds this
+                        percentage
+                      </p>
+                    </div>
+                  )}
+                </div>
 
                 <Separator />
 
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Dark Mode</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Toggle dark/light theme
-                    </p>
+                {/* Code Block Display Settings */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Code className="h-4 w-4" />
+                    <Label className="text-base font-medium">
+                      Code Block Display
+                    </Label>
                   </div>
-                  <Switch
-                    checked={settings.darkMode}
-                    onCheckedChange={(checked) =>
-                      updateSettings({ darkMode: checked })
-                    }
-                  />
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Configure when code blocks should be displayed as clickable
+                    cards that open in the code canvas instead of inline.
+                  </p>
+
+                  {validationError && (
+                    <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950/20">
+                      <AlertCircle className="h-4 w-4 text-yellow-600" />
+                      <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                        {validationError}
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  <div className="grid gap-6">
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <Label htmlFor="code-min-lines" className="font-medium">
+                          Minimum Lines for Canvas
+                        </Label>
+                        <Badge variant="outline" className="font-mono">
+                          {settings.codeBlockMinLines}
+                        </Badge>
+                      </div>
+                      <Slider
+                        id="code-min-lines"
+                        value={[settings.codeBlockMinLines]}
+                        onValueChange={([value]) =>
+                          handleCodeBlockSettingChange(
+                            "codeBlockMinLines",
+                            value
+                          )
+                        }
+                        min={1}
+                        max={100}
+                        step={1}
+                        className="mb-2"
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                        <span>1 line</span>
+                        <span>100 lines</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Code blocks with this many lines or more will show as
+                        clickable cards that open in the canvas
+                      </p>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <Label
+                          htmlFor="code-always-inline"
+                          className="font-medium"
+                        >
+                          Always Show Inline (Max Lines)
+                        </Label>
+                        <Badge variant="outline" className="font-mono">
+                          {settings.codeBlockAlwaysInlineMaxLines}
+                        </Badge>
+                      </div>
+                      <Slider
+                        id="code-always-inline"
+                        value={[settings.codeBlockAlwaysInlineMaxLines]}
+                        onValueChange={([value]) =>
+                          handleCodeBlockSettingChange(
+                            "codeBlockAlwaysInlineMaxLines",
+                            value
+                          )
+                        }
+                        min={0}
+                        max={20}
+                        step={1}
+                        className="mb-2"
+                      />
+                      <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                        <span>0 lines</span>
+                        <span>20 lines</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Code blocks with this many lines or fewer will always
+                        stay inline, regardless of other settings
+                      </p>
+                    </div>
+                  </div>
+
+                  <div
+                    className={cn(
+                      "p-3 rounded-lg text-sm transition-colors",
+                      validationError
+                        ? "bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800"
+                        : "bg-muted/50"
+                    )}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Monitor className="h-4 w-4" />
+                      <span className="font-medium">
+                        Current Settings Preview
+                      </span>
+                      {validationError && (
+                        <Badge
+                          variant="outline"
+                          className="text-yellow-600 border-yellow-300"
+                        >
+                          <AlertCircle className="h-3 w-3 mr-1" />
+                          Warning
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="space-y-1 text-xs text-muted-foreground">
+                      <div>
+                        • Code with ≤{settings.codeBlockAlwaysInlineMaxLines}{" "}
+                        lines:{" "}
+                        <span className="text-green-600 font-medium">
+                          Always inline
+                        </span>
+                      </div>
+                      <div>
+                        • Code with ≥{settings.codeBlockMinLines} lines:{" "}
+                        <span className="text-blue-600 font-medium">
+                          Canvas card
+                        </span>
+                      </div>
+                      <div>
+                        • Everything else:{" "}
+                        <span className="text-orange-600 font-medium">
+                          Inline code block
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </TabsContent>
