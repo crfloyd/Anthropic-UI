@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Plus, MessageSquare, Trash2, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SearchConversations } from "@/components/search-conversations";
 
 interface Conversation {
   id: string;
@@ -132,6 +133,14 @@ export function ConversationSidebar({
           >
             <X className="h-4 w-4" />
           </Button>
+        </div>
+
+        {/* Search */}
+        <div className="p-4 border-b border-border">
+          <SearchConversations
+            onConversationSelect={onConversationSelect}
+            isOpen={isOpen}
+          />
         </div>
 
         {/* New Conversation Button */}

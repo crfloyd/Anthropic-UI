@@ -15,6 +15,7 @@ import {
   Menu,
   BarChart3,
   Download,
+  MoreHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MarkdownMessage } from "@/components/markdown-message";
@@ -24,8 +25,10 @@ import { ConversationStats } from "@/components/conversation-stats";
 import { ContextManager } from "@/components/context-manager";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ExportDialog } from "@/components/export-dialog";
+import { MessageActions } from "@/components/message-actions";
 import { getContextStatus, MessageWithTokens } from "@/lib/tokens";
 import { useSettings } from "@/lib/settings";
+import { useMessageActions } from "@/hooks/use-message-actions";
 
 interface Message {
   id: string;
@@ -58,6 +61,26 @@ export default function ChatPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const { settings } = useSettings();
+
+  // Message actions hook
+  const messageActions = useMessageActions({
+    messages,
+    setMessages,
+    onRegenerateFromIndex: (index) => {
+      // Regenerate from a specific message index
+      const userMessage = messages[index];
+      if (userMessage && userMessage.role === "user") {
+        handleRegenerateFromMessage(userMessage, index);
+      }
+    },
+    onCreateBranch: (fromIndex, branchMessages) => {
+      // For now, just create a new conversation
+      // Could be enhanced to actually create conversation branches in the database
+      handleNewConversation();
+      setMessages(branchMessages);
+    },
+  });
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -231,9 +254,28 @@ export default function ChatPage() {
       timestamp: new Date(),
     };
 
+    await sendMessage(userMessage);
+  };
+
+  const handleRegenerateFromMessage = async (
+    userMessage: Message,
+    index: number
+  ) => {
+    // Use existing messages up to this point as context
+    const contextMessages = messages.slice(0, index + 1);
+    await sendMessage(userMessage, contextMessages);
+  };
+
+  const sendMessage = async (
+    userMessage: Message,
+    contextMessages?: Message[]
+  ) => {
     // Update messages immediately for UI responsiveness
-    setMessages((prev) => [...prev, userMessage]);
-    const currentMessages = [...messages, userMessage];
+    const currentMessages = contextMessages || [...messages, userMessage];
+    if (!contextMessages) {
+      setMessages((prev) => [...prev, userMessage]);
+    }
+
     setInput("");
     setIsLoading(true);
 
@@ -401,7 +443,7 @@ export default function ChatPage() {
   return (
     <div
       className={cn(
-        "min-h-screen bg-background text-foreground",
+        "min-h-screen bg-background text-foreground overflow-x-hidden",
         isDark && "dark"
       )}
     >
@@ -417,13 +459,13 @@ export default function ChatPage() {
       {/* Main Chat Area */}
       <div
         className={cn(
-          "transition-all duration-300 ease-in-out",
+          "transition-all duration-300 ease-in-out overflow-x-hidden",
           isSidebarOpen ? "md:ml-72" : "ml-0"
         )}
       >
         {/* Header */}
         <header className="border-b border-border bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-card/60">
-          <div className="container mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="w-full px-4 py-3 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <Button
                 variant="ghost"
@@ -639,30 +681,32 @@ export default function ChatPage() {
           </div>
 
           {/* Input Form */}
-          <Card className="p-4">
-            <form onSubmit={handleSubmit} className="flex space-x-2">
-              <div className="flex-1">
-                <Textarea
-                  ref={textareaRef}
-                  placeholder="Type your message here..."
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  disabled={isLoading}
-                  className="min-h-[60px] max-h-[200px] resize-none"
-                  rows={1}
-                />
-              </div>
-              <Button
-                type="submit"
-                disabled={!input.trim() || isLoading}
-                size="icon"
-                className="self-end h-[60px] w-[60px]"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </form>
-          </Card>
+          <div className="max-w-4xl mx-auto w-full">
+            <Card className="p-4">
+              <form onSubmit={handleSubmit} className="flex space-x-2">
+                <div className="flex-1">
+                  <Textarea
+                    ref={textareaRef}
+                    placeholder="Type your message here..."
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    disabled={isLoading}
+                    className="min-h-[60px] max-h-[200px] resize-none"
+                    rows={1}
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  disabled={!input.trim() || isLoading}
+                  size="icon"
+                  className="self-end h-[60px] w-[60px]"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </form>
+            </Card>
+          </div>
         </div>
       </div>
     </div>

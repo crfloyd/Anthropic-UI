@@ -33,9 +33,23 @@ const CodeBlock = memo(
     const codeString = String(children).replace(/\n$/, "");
 
     const handleCopy = async () => {
-      await navigator.clipboard.writeText(codeString);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(codeString);
+        } else {
+          // Fallback for environments without clipboard API
+          const textArea = document.createElement("textarea");
+          textArea.value = codeString;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand("copy");
+          document.body.removeChild(textArea);
+        }
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (error) {
+        console.error("Copy failed:", error);
+      }
     };
 
     if (inline) {
@@ -50,7 +64,7 @@ const CodeBlock = memo(
     }
 
     return (
-      <div className="relative group">
+      <div className="relative group w-full max-w-full">
         <div className="flex items-center justify-between bg-muted px-4 py-2 rounded-t-lg border-b">
           <span className="text-sm font-medium text-muted-foreground">
             {language || "code"}
@@ -68,19 +82,33 @@ const CodeBlock = memo(
             )}
           </Button>
         </div>
-        <SyntaxHighlighter
-          style={isDark ? oneDark : oneLight}
-          language={language}
-          PreTag="div"
-          className="!mt-0 !rounded-t-none !rounded-b-lg"
-          customStyle={{
-            margin: 0,
-            borderTopLeftRadius: 0,
-            borderTopRightRadius: 0,
-          }}
-        >
-          {codeString}
-        </SyntaxHighlighter>
+        <div className="w-full overflow-x-auto" style={{ maxWidth: "100%" }}>
+          <SyntaxHighlighter
+            style={isDark ? oneDark : oneLight}
+            language={language}
+            PreTag="div"
+            className="!mt-0 !rounded-t-none !rounded-b-lg !m-0"
+            customStyle={{
+              margin: 0,
+              borderTopLeftRadius: 0,
+              borderTopRightRadius: 0,
+              width: "100%",
+              maxWidth: "100%",
+              fontSize: "0.875rem",
+              lineHeight: "1.25rem",
+            }}
+            codeTagProps={{
+              style: {
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all",
+                overflowWrap: "anywhere",
+              },
+            }}
+            wrapLongLines={true}
+          >
+            {codeString}
+          </SyntaxHighlighter>
+        </div>
       </div>
     );
   }
@@ -95,9 +123,11 @@ export const MarkdownMessage = memo(
         <ReactMarkdown
           components={{
             code: (props) => <CodeBlock {...props} isDark={isDark} />,
-            pre: ({ children }) => {
+            pre: ({ children, ...props }) => {
+              // Don't wrap code blocks in pre tags since CodeBlock handles the container
               return <>{children}</>;
             },
+            // Custom styling for other elements
             h1: ({ children }) => (
               <h1 className="text-xl font-bold mt-6 mb-4 first:mt-0">
                 {children}
