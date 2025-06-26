@@ -32,6 +32,15 @@ const CodeBlock = memo(
     const language = match ? match[1] : "";
     const codeString = String(children).replace(/\n$/, "");
 
+    // Smart inline detection: treat as inline if:
+    // 1. Explicitly marked as inline
+    // 2. Single line with no newlines and relatively short
+    // 3. Very short code (under 50 characters)
+    const isActuallyInline =
+      inline ||
+      (!codeString.includes("\n") && codeString.length < 50) ||
+      codeString.length < 20;
+
     const handleCopy = async () => {
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -52,10 +61,11 @@ const CodeBlock = memo(
       }
     };
 
-    if (inline) {
+    // Handle inline code (single backticks OR smart inline detection)
+    if (isActuallyInline) {
       return (
         <code
-          className="bg-muted px-1.5 py-0.5 rounded text-sm font-mono"
+          className="bg-muted text-orange-600 dark:text-orange-400 px-1.5 py-0.5 rounded text-sm font-mono"
           {...props}
         >
           {children}
@@ -63,6 +73,7 @@ const CodeBlock = memo(
       );
     }
 
+    // Handle code blocks (triple backticks)
     return (
       <div className="relative group w-full max-w-full">
         <div className="flex items-center justify-between bg-muted px-4 py-2 rounded-t-lg border-b">
@@ -122,7 +133,16 @@ export const MarkdownMessage = memo(
       <div className="prose prose-sm max-w-none dark:prose-invert prose-pre:p-0 prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-code:before:content-none prose-code:after:content-none">
         <ReactMarkdown
           components={{
-            code: (props) => <CodeBlock {...props} isDark={isDark} />,
+            code: ({ node, inline, className, children, ...props }) => (
+              <CodeBlock
+                inline={inline}
+                className={className}
+                isDark={isDark}
+                {...props}
+              >
+                {children}
+              </CodeBlock>
+            ),
             pre: ({ children, ...props }) => {
               // Don't wrap code blocks in pre tags since CodeBlock handles the container
               return <>{children}</>;

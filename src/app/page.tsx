@@ -26,15 +26,27 @@ import { ContextManager } from "@/components/context-manager";
 import { SettingsPanel } from "@/components/settings-panel";
 import { ExportDialog } from "@/components/export-dialog";
 import { MessageActions } from "@/components/message-actions";
+import { FileUpload, UploadedFile } from "@/components/file-upload";
+import { MessageFiles, FileAttachment } from "@/components/message-files";
 import { getContextStatus, MessageWithTokens } from "@/lib/tokens";
 import { useSettings } from "@/lib/settings";
 import { useMessageActions } from "@/hooks/use-message-actions";
+
+interface FileAttachment {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  content?: string; // For text files, base64 for images
+  url?: string; // If stored somewhere
+}
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  files?: FileAttachment[];
 }
 
 interface ConversationWithMessages {
@@ -60,6 +72,7 @@ export default function ChatPage() {
   const [isContextManagerOpen, setIsContextManagerOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const { settings } = useSettings();
 
   // Load theme preference from localStorage on mount
@@ -114,6 +127,92 @@ export default function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Helper function to process uploaded files for API
+  const processUploadedFiles = async (
+    files: UploadedFile[]
+  ): Promise<FileAttachment[]> => {
+    const attachments: FileAttachment[] = [];
+
+    for (const uploadedFile of files) {
+      const { file } = uploadedFile;
+
+      let content: string | undefined;
+
+      if (file.type.startsWith("text/") || file.type === "application/json") {
+        // Read text files
+        content = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.readAsText(file);
+        });
+      } else if (file.type.startsWith("image/")) {
+        // Convert images to base64
+        content = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+      }
+
+      attachments.push({
+        id: uploadedFile.id,
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        content,
+      });
+    }
+
+    return attachments;
+  };
+
+  // Handle paste events to detect files
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = Array.from(e.clipboardData.items);
+    const files: File[] = [];
+
+    items.forEach((item) => {
+      if (item.kind === "file") {
+        const file = item.getAsFile();
+        if (file) {
+          files.push(file);
+        }
+      }
+    });
+
+    if (files.length > 0) {
+      e.preventDefault();
+
+      // Add files to uploaded files
+      const newUploadedFiles: UploadedFile[] = [];
+      for (const file of files) {
+        const type = file.type.startsWith("image/")
+          ? "image"
+          : file.type.startsWith("text/")
+          ? "text"
+          : "other";
+
+        let preview: string | undefined;
+        if (file.type.startsWith("image/")) {
+          preview = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target?.result as string);
+            reader.readAsDataURL(file);
+          });
+        }
+
+        newUploadedFiles.push({
+          id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+          file,
+          preview,
+          type,
+        });
+      }
+
+      setUploadedFiles((prev) => [...prev, ...newUploadedFiles]);
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -266,14 +365,21 @@ export default function ChatPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isLoading) return;
+    if ((!input.trim() && uploadedFiles.length === 0) || isLoading) return;
+
+    // Process uploaded files
+    const fileAttachments = await processUploadedFiles(uploadedFiles);
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
       content: input.trim(),
       timestamp: new Date(),
+      files: fileAttachments.length > 0 ? fileAttachments : undefined,
     };
+
+    // Clear input and files
+    setUploadedFiles([]);
 
     await sendMessage(userMessage);
   };
@@ -690,6 +796,15 @@ export default function ChatPage() {
                               </p>
                             </div>
                           )}
+
+                          {/* Display file attachments */}
+                          {message.files && message.files.length > 0 && (
+                            <MessageFiles
+                              files={message.files}
+                              messageRole={message.role}
+                            />
+                          )}
+
                           <div
                             className={cn(
                               "text-xs mt-2 opacity-70 flex items-center justify-between",
@@ -763,6 +878,14 @@ export default function ChatPage() {
           {/* Input Form */}
           <div className="max-w-4xl mx-auto w-full">
             <Card className="p-4">
+              {/* File Upload Component */}
+              <FileUpload
+                files={uploadedFiles}
+                onFilesChange={setUploadedFiles}
+                disabled={isLoading}
+                className="mb-2"
+              />
+
               <form onSubmit={handleSubmit} className="flex space-x-2">
                 <div className="flex-1">
                   <Textarea
@@ -771,6 +894,7 @@ export default function ChatPage() {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={handleKeyDown}
+                    onPaste={handlePaste}
                     disabled={isLoading}
                     className="min-h-[60px] max-h-[200px] resize-none"
                     rows={1}
@@ -778,7 +902,9 @@ export default function ChatPage() {
                 </div>
                 <Button
                   type="submit"
-                  disabled={!input.trim() || isLoading}
+                  disabled={
+                    (!input.trim() && uploadedFiles.length === 0) || isLoading
+                  }
                   size="icon"
                   className="self-end h-[60px] w-[60px]"
                 >

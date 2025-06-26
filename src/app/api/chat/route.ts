@@ -8,6 +8,21 @@ const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+interface FileAttachment {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  content?: string;
+  url?: string;
+}
+
+interface MessageWithFiles {
+  role: "user" | "assistant";
+  content: string;
+  files?: FileAttachment[];
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { messages, conversationId, settings } = await request.json();
@@ -55,6 +70,8 @@ export async function POST(request: NextRequest) {
           role: "user",
           content: latestUserMessage.content,
           conversationId: conversationId,
+          // Note: You might want to store file references in a separate table
+          // For now, we'll include file info in the content or metadata
         },
       });
 
@@ -65,13 +82,48 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Convert messages to Anthropic format
+    // Convert messages to Anthropic format, handling files
     const anthropicMessages = messages
-      .filter((msg) => msg.role === "user" || msg.role === "assistant")
-      .map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+      .filter(
+        (msg: MessageWithFiles) =>
+          msg.role === "user" || msg.role === "assistant"
+      )
+      .map((msg: MessageWithFiles) => {
+        let content = msg.content;
+
+        // If the message has files, append file information to the content
+        if (msg.files && msg.files.length > 0) {
+          content += "\n\nAttached files:\n";
+
+          msg.files.forEach((file) => {
+            content += `\n**${file.name}** (${file.type}, ${formatFileSize(
+              file.size
+            )})`;
+
+            if (file.content) {
+              if (
+                file.type.startsWith("text/") ||
+                file.type === "application/json"
+              ) {
+                // Include text file content
+                content += `:\n\`\`\`\n${file.content}\n\`\`\`\n`;
+              } else if (file.type.startsWith("image/")) {
+                // For images, just mention they are attached
+                content += ": [Image file attached]\n";
+                // Note: Claude API doesn't support images yet in this way
+                // You would need to use Claude's vision capabilities separately
+              } else {
+                content += ": [File attached - content not readable]\n";
+              }
+            }
+          });
+        }
+
+        return {
+          role: msg.role,
+          content: content,
+        };
+      });
 
     // Create streaming response
     const stream = new ReadableStream({
@@ -146,4 +198,13 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+// Helper function to format file size
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
 }
