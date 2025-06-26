@@ -1,7 +1,7 @@
 // src/components/markdown-message.tsx
 "use client";
 
-import { memo } from "react";
+import { memo, useMemo, useCallback, useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
@@ -10,7 +10,7 @@ import {
 } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useState } from "react";
+import { CodeFileAttachment } from "@/components/code-file-attachment";
 import { cn } from "@/lib/utils";
 
 interface MarkdownMessageProps {
@@ -27,6 +27,172 @@ interface CodeBlockProps {
   onCodeBlockClick?: (code: string, language: string, title?: string) => void;
 }
 
+// Thresholds for determining when to show as file attachment vs inline code
+const LARGE_CODE_THRESHOLDS = {
+  LINES: 20,
+  CHARACTERS: 1000,
+  ALWAYS_INLINE_LINES: 5,
+};
+
+// Debounce delay for switching to file attachment mode during streaming
+const STREAMING_DEBOUNCE_MS = 500;
+
+// Hook for debounced large code detection
+function useDebouncedLargeCodeDetection(
+  codeString: string,
+  isActuallyInline: boolean,
+  delay: number = STREAMING_DEBOUNCE_MS
+) {
+  const [isLargeCode, setIsLargeCode] = useState(false);
+
+  // Memoize the calculation to prevent unnecessary recalculations
+  const shouldBeLargeCode = useMemo(() => {
+    if (isActuallyInline) return false;
+
+    const lineCount = codeString.split("\n").length;
+    const characterCount = codeString.length;
+
+    return (
+      (lineCount >= LARGE_CODE_THRESHOLDS.LINES ||
+        characterCount >= LARGE_CODE_THRESHOLDS.CHARACTERS) &&
+      lineCount > LARGE_CODE_THRESHOLDS.ALWAYS_INLINE_LINES
+    );
+  }, [codeString, isActuallyInline]);
+
+  useEffect(() => {
+    // If it should be large code, debounce the switch
+    if (shouldBeLargeCode) {
+      const timer = setTimeout(() => {
+        setIsLargeCode(true);
+      }, delay);
+
+      return () => clearTimeout(timer);
+    } else {
+      // If it shouldn't be large code, switch immediately
+      setIsLargeCode(false);
+    }
+  }, [shouldBeLargeCode, delay]);
+
+  return isLargeCode;
+}
+
+// Memoized file utilities
+const fileUtils = {
+  generateFileName: (language: string, content: string): string => {
+    const lines = content.split("\n");
+
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      const line = lines[i].trim();
+
+      if (
+        line.match(/^(function|def|class|interface|type|const|let|var)\s+(\w+)/)
+      ) {
+        const match = line.match(
+          /^(?:function|def|class|interface|type|const|let|var)\s+(\w+)/
+        );
+        if (match) {
+          return `${match[1]}.${fileUtils.getFileExtension(language)}`;
+        }
+      }
+
+      if (line.match(/\/\/.*\./) || line.match(/#.*\./)) {
+        const fileMatch = line.match(/(\w+\.\w+)/);
+        if (fileMatch) {
+          return fileMatch[1];
+        }
+      }
+    }
+
+    const extension = fileUtils.getFileExtension(language);
+    const baseName = fileUtils.getGenericBaseName(language);
+
+    return `${baseName}.${extension}`;
+  },
+
+  getFileExtension: (lang: string): string => {
+    const extensions: Record<string, string> = {
+      javascript: "js",
+      typescript: "ts",
+      jsx: "jsx",
+      tsx: "tsx",
+      python: "py",
+      java: "java",
+      cpp: "cpp",
+      c: "c",
+      csharp: "cs",
+      php: "php",
+      ruby: "rb",
+      go: "go",
+      rust: "rs",
+      swift: "swift",
+      kotlin: "kt",
+      scala: "scala",
+      html: "html",
+      css: "css",
+      scss: "scss",
+      sass: "sass",
+      less: "less",
+      json: "json",
+      xml: "xml",
+      yaml: "yml",
+      yml: "yml",
+      markdown: "md",
+      sql: "sql",
+      bash: "sh",
+      shell: "sh",
+      powershell: "ps1",
+      dockerfile: "dockerfile",
+      makefile: "makefile",
+    };
+    return extensions[lang.toLowerCase()] || "txt";
+  },
+
+  getGenericBaseName: (lang: string): string => {
+    const baseNames: Record<string, string> = {
+      javascript: "script",
+      typescript: "component",
+      jsx: "Component",
+      tsx: "Component",
+      python: "main",
+      java: "Main",
+      cpp: "main",
+      c: "main",
+      csharp: "Program",
+      php: "index",
+      ruby: "main",
+      go: "main",
+      rust: "main",
+      swift: "ViewController",
+      kotlin: "Main",
+      scala: "Main",
+      html: "index",
+      css: "styles",
+      scss: "styles",
+      sass: "styles",
+      less: "styles",
+      json: "data",
+      xml: "config",
+      yaml: "config",
+      yml: "config",
+      markdown: "README",
+      sql: "query",
+      bash: "script",
+      shell: "script",
+      powershell: "script",
+      dockerfile: "Dockerfile",
+      makefile: "Makefile",
+    };
+    return baseNames[lang.toLowerCase()] || "code";
+  },
+
+  formatFileSize: (text: string): string => {
+    const bytes = new Blob([text]).size;
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  },
+};
+
 const CodeBlock = memo(
   ({
     inline,
@@ -38,17 +204,41 @@ const CodeBlock = memo(
   }: CodeBlockProps) => {
     const [copied, setCopied] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
-    const match = /language-(\w+)/.exec(className || "");
-    const language = match ? match[1] : "";
-    const codeString = String(children).replace(/\n$/, "");
 
-    // Smart inline detection
-    const isActuallyInline =
-      inline ||
-      (!codeString.includes("\n") && codeString.length < 50) ||
-      codeString.length < 20;
+    // Memoize all expensive calculations
+    const { match, language, codeString, isActuallyInline, lineCount } =
+      useMemo(() => {
+        const match = /language-(\w+)/.exec(className || "");
+        const language = match ? match[1] : "";
+        const codeString = String(children).replace(/\n$/, "");
 
-    const handleCopy = async () => {
+        const isActuallyInline =
+          inline ||
+          (!codeString.includes("\n") && codeString.length < 50) ||
+          codeString.length < 20;
+
+        const lineCount = codeString.split("\n").length;
+
+        return { match, language, codeString, isActuallyInline, lineCount };
+      }, [inline, className, children]);
+
+    // Use debounced large code detection
+    const isLargeCode = useDebouncedLargeCodeDetection(
+      codeString,
+      isActuallyInline
+    );
+
+    // Memoize file metadata
+    const fileMetadata = useMemo(() => {
+      if (!isLargeCode || !onCodeBlockClick) return null;
+
+      return {
+        filename: fileUtils.generateFileName(language, codeString),
+        size: fileUtils.formatFileSize(codeString),
+      };
+    }, [isLargeCode, onCodeBlockClick, language, codeString]);
+
+    const handleCopy = useCallback(async () => {
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
           await navigator.clipboard.writeText(codeString);
@@ -65,14 +255,14 @@ const CodeBlock = memo(
       } catch (error) {
         console.error("Copy failed:", error);
       }
-    };
+    }, [codeString]);
 
-    const handleOpenInCanvas = () => {
-      if (onCodeBlockClick && !isActuallyInline) {
-        const title = `${language || "Code"} Snippet`;
+    const handleOpenInCanvas = useCallback(() => {
+      if (onCodeBlockClick) {
+        const title = fileMetadata?.filename || `${language || "Code"} Snippet`;
         onCodeBlockClick(codeString, language || "text", title);
       }
-    };
+    }, [onCodeBlockClick, codeString, language, fileMetadata]);
 
     // Handle inline code
     if (isActuallyInline) {
@@ -86,7 +276,21 @@ const CodeBlock = memo(
       );
     }
 
-    // Handle code blocks with enhanced interactions
+    // Handle large code as file attachment (only after debounce)
+    if (isLargeCode && onCodeBlockClick && fileMetadata) {
+      return (
+        <CodeFileAttachment
+          filename={fileMetadata.filename}
+          language={language || "text"}
+          content={codeString}
+          lineCount={lineCount}
+          size={fileMetadata.size}
+          onOpenInCanvas={handleOpenInCanvas}
+        />
+      );
+    }
+
+    // Handle regular code blocks - memoized render
     return (
       <div
         className="relative group w-full max-w-full mb-4"
@@ -204,87 +408,86 @@ const CodeBlock = memo(
 
 CodeBlock.displayName = "CodeBlock";
 
+// Memoized main component
 export const MarkdownMessage = memo(
   ({ content, isDark, onCodeBlockClick }: MarkdownMessageProps) => {
+    // Memoize the markdown components to prevent recreation on every render
+    const markdownComponents = useMemo(
+      () => ({
+        code: ({ node, inline, className, children, ...props }: any) => (
+          <CodeBlock
+            inline={inline}
+            className={className}
+            isDark={isDark}
+            onCodeBlockClick={onCodeBlockClick}
+            {...props}
+          >
+            {children}
+          </CodeBlock>
+        ),
+        pre: ({ children, ...props }: any) => <>{children}</>,
+        h1: ({ children }: any) => (
+          <h1 className="text-xl font-bold mt-6 mb-4 first:mt-0">{children}</h1>
+        ),
+        h2: ({ children }: any) => (
+          <h2 className="text-lg font-semibold mt-5 mb-3 first:mt-0">
+            {children}
+          </h2>
+        ),
+        h3: ({ children }: any) => (
+          <h3 className="text-base font-medium mt-4 mb-2 first:mt-0">
+            {children}
+          </h3>
+        ),
+        p: ({ children }: any) => (
+          <div className="mb-3 last:mb-0 leading-relaxed">{children}</div>
+        ),
+        ul: ({ children }: any) => (
+          <ul className="list-disc ml-6 mb-3 space-y-1">{children}</ul>
+        ),
+        ol: ({ children }: any) => (
+          <ol className="list-decimal ml-6 mb-3 space-y-1">{children}</ol>
+        ),
+        li: ({ children }: any) => (
+          <li className="leading-relaxed">{children}</li>
+        ),
+        blockquote: ({ children }: any) => (
+          <blockquote className="border-l-4 border-border pl-4 italic text-muted-foreground my-4">
+            {children}
+          </blockquote>
+        ),
+        a: ({ href, children }: any) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline hover:no-underline"
+          >
+            {children}
+          </a>
+        ),
+        table: ({ children }: any) => (
+          <div className="overflow-x-auto my-4">
+            <table className="min-w-full border-collapse border border-border">
+              {children}
+            </table>
+          </div>
+        ),
+        th: ({ children }: any) => (
+          <th className="border border-border bg-muted px-4 py-2 text-left font-medium">
+            {children}
+          </th>
+        ),
+        td: ({ children }: any) => (
+          <td className="border border-border px-4 py-2">{children}</td>
+        ),
+      }),
+      [isDark, onCodeBlockClick]
+    );
+
     return (
       <div className="prose prose-sm max-w-none dark:prose-invert prose-pre:p-0 prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-sm prose-code:font-mono prose-code:before:content-none prose-code:after:content-none">
-        <ReactMarkdown
-          components={{
-            code: ({ node, inline, className, children, ...props }) => (
-              <CodeBlock
-                inline={inline}
-                className={className}
-                isDark={isDark}
-                onCodeBlockClick={onCodeBlockClick}
-                {...props}
-              >
-                {children}
-              </CodeBlock>
-            ),
-            pre: ({ children, ...props }) => {
-              return <>{children}</>;
-            },
-            h1: ({ children }) => (
-              <h1 className="text-xl font-bold mt-6 mb-4 first:mt-0">
-                {children}
-              </h1>
-            ),
-            h2: ({ children }) => (
-              <h2 className="text-lg font-semibold mt-5 mb-3 first:mt-0">
-                {children}
-              </h2>
-            ),
-            h3: ({ children }) => (
-              <h3 className="text-base font-medium mt-4 mb-2 first:mt-0">
-                {children}
-              </h3>
-            ),
-            p: ({ children }) => (
-              <div className="mb-3 last:mb-0 leading-relaxed">{children}</div>
-            ),
-            ul: ({ children }) => (
-              <ul className="list-disc ml-6 mb-3 space-y-1">{children}</ul>
-            ),
-            ol: ({ children }) => (
-              <ol className="list-decimal ml-6 mb-3 space-y-1">{children}</ol>
-            ),
-            li: ({ children }) => (
-              <li className="leading-relaxed">{children}</li>
-            ),
-            blockquote: ({ children }) => (
-              <blockquote className="border-l-4 border-border pl-4 italic text-muted-foreground my-4">
-                {children}
-              </blockquote>
-            ),
-            a: ({ href, children }) => (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline hover:no-underline"
-              >
-                {children}
-              </a>
-            ),
-            table: ({ children }) => (
-              <div className="overflow-x-auto my-4">
-                <table className="min-w-full border-collapse border border-border">
-                  {children}
-                </table>
-              </div>
-            ),
-            th: ({ children }) => (
-              <th className="border border-border bg-muted px-4 py-2 text-left font-medium">
-                {children}
-              </th>
-            ),
-            td: ({ children }) => (
-              <td className="border border-border px-4 py-2">{children}</td>
-            ),
-          }}
-        >
-          {content}
-        </ReactMarkdown>
+        <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
       </div>
     );
   }

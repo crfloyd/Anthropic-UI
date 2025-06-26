@@ -1,7 +1,7 @@
 // src/app/page.tsx
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -93,6 +93,8 @@ export default function ChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const savedScrollPosition = useRef<number>(0);
 
   // Helper function to process uploaded files for API
   const processUploadedFiles = async (
@@ -218,6 +220,18 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Preserve scroll position when canvas opens/closes
+  useEffect(() => {
+    if (messagesContainerRef.current && savedScrollPosition.current > 0) {
+      const timer = setTimeout(() => {
+        if (messagesContainerRef.current) {
+          messagesContainerRef.current.scrollTop = savedScrollPosition.current;
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isCanvasOpen]);
 
   // Check context status and auto-open context manager if critical
   useEffect(() => {
@@ -555,6 +569,11 @@ export default function ChatPage() {
     language: string,
     title?: string
   ) => {
+    // Save current scroll position before opening canvas
+    if (messagesContainerRef.current) {
+      savedScrollPosition.current = messagesContainerRef.current.scrollTop;
+    }
+
     const artifact: ArtifactData = {
       id: Date.now().toString(),
       title: title || `${language} Code`,
@@ -564,6 +583,13 @@ export default function ChatPage() {
     };
     setCurrentArtifact(artifact);
     setIsCanvasOpen(true);
+
+    // Restore scroll position after a brief delay to allow for layout changes
+    setTimeout(() => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = savedScrollPosition.current;
+      }
+    }, 100);
   };
 
   const getFileExtension = (language: string): string => {
@@ -584,10 +610,20 @@ export default function ChatPage() {
   };
 
   const handleCanvasClose = () => {
+    // Save current scroll position before closing canvas
+    if (messagesContainerRef.current) {
+      savedScrollPosition.current = messagesContainerRef.current.scrollTop;
+    }
+
     // The ResizableLayout handles the animation, we just update the state
     setIsCanvasOpen(false);
-    // Optionally clear the artifact after animation completes
+
+    // Restore scroll position after animation completes
     setTimeout(() => {
+      if (messagesContainerRef.current) {
+        messagesContainerRef.current.scrollTop = savedScrollPosition.current;
+      }
+      // Clear the artifact after animation completes
       if (!isCanvasOpen) {
         setCurrentArtifact(null);
       }
@@ -629,6 +665,167 @@ export default function ChatPage() {
     tokens: undefined,
   }));
   const contextStatus = getContextStatus(messagesWithTokens);
+
+  // Memoize message rendering to prevent unnecessary re-renders during typing
+  const renderedMessages = useMemo(() => {
+    if (messages.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full text-center py-20">
+          <Bot className="h-12 w-12 text-muted-foreground mb-4" />
+          <h2 className="text-xl font-semibold mb-2">
+            Welcome to Claude API Chat
+          </h2>
+          <p className="text-muted-foreground mb-4">
+            Start a conversation with Claude by typing a message below.
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Your conversations will be automatically saved and can be accessed
+            from the sidebar.
+          </p>
+        </div>
+      );
+    }
+
+    return messages.map((message, index) => (
+      <div
+        key={message.id}
+        className={cn(
+          "flex w-full group relative",
+          message.role === "user" ? "justify-end" : "justify-start"
+        )}
+      >
+        <div
+          className={cn(
+            "flex max-w-[85%] space-x-3 relative",
+            message.role === "user"
+              ? "flex-row-reverse space-x-reverse"
+              : "flex-row"
+          )}
+        >
+          {/* Avatar */}
+          <div
+            className={cn(
+              "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center",
+              message.role === "user"
+                ? "bg-primary text-primary-foreground"
+                : "bg-secondary text-secondary-foreground"
+            )}
+          >
+            {message.role === "user" ? (
+              <User className="h-4 w-4" />
+            ) : (
+              <Bot className="h-4 w-4" />
+            )}
+          </div>
+
+          {/* Message Content */}
+          <div className="relative w-full">
+            <Card
+              className={cn(
+                "p-4",
+                message.role === "user"
+                  ? "bg-muted/50 dark:bg-muted/30"
+                  : "bg-transparent border-none shadow-none"
+              )}
+            >
+              {messageActions.isEditing(index) ? (
+                <EditMessageButton
+                  message={message}
+                  messageIndex={index}
+                  onEdit={messageActions.handleEdit}
+                  isEditing={true}
+                  onStartEdit={() => messageActions.startEdit(index)}
+                  onCancelEdit={messageActions.cancelEdit}
+                />
+              ) : (
+                <>
+                  {message.role === "assistant" ? (
+                    <MarkdownMessage
+                      content={message.content}
+                      isDark={isDark}
+                      onCodeBlockClick={handleCodeBlockClick}
+                    />
+                  ) : (
+                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                      <p className="whitespace-pre-wrap m-0">
+                        {message.content}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Display file attachments */}
+                  {message.files && message.files.length > 0 && (
+                    <MessageFiles
+                      files={message.files}
+                      messageRole={message.role}
+                    />
+                  )}
+
+                  <div
+                    className={cn(
+                      "text-xs mt-2 opacity-70 flex items-center justify-between",
+                      "text-muted-foreground"
+                    )}
+                  >
+                    <span>{message.timestamp.toLocaleTimeString()}</span>
+                    <TokenDisplay
+                      content={message.content}
+                      role={message.role}
+                      showInline
+                      className="ml-2"
+                    />
+                  </div>
+                </>
+              )}
+            </Card>
+
+            {/* Action Buttons - positioned below the message */}
+            {!messageActions.isEditing(index) && (
+              <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 justify-end">
+                {/* Copy button for all messages */}
+                <CopyMessageButton
+                  content={message.content}
+                  onCopy={messageActions.handleCopy}
+                />
+
+                {/* Edit button for user messages only */}
+                <EditMessageButton
+                  message={message}
+                  messageIndex={index}
+                  onEdit={messageActions.handleEdit}
+                  isEditing={false}
+                  onStartEdit={() => messageActions.startEdit(index)}
+                  onCancelEdit={messageActions.cancelEdit}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    ));
+  }, [messages, messageActions, isDark, handleCodeBlockClick]);
+
+  // Memoize loading indicator
+  const loadingIndicator = useMemo(() => {
+    if (!isLoading) return null;
+
+    return (
+      <div className="flex justify-start">
+        <div className="flex max-w-[85%] space-x-3">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center">
+            <Bot className="h-4 w-4" />
+          </div>
+          <Card className="p-4 bg-transparent border-none shadow-none">
+            <div className="flex space-x-1">
+              <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
+              <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.1s]"></div>
+              <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.2s]"></div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }, [isLoading]);
 
   return (
     <div
@@ -739,7 +936,10 @@ export default function ChatPage() {
               {/* Chat Container */}
               <div className="flex flex-col flex-1 max-w-4xl mx-auto px-4 py-6 w-full min-h-0">
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto space-y-4 mb-4 relative min-h-0">
+                <div
+                  ref={messagesContainerRef}
+                  className="flex-1 overflow-y-auto space-y-4 mb-4 relative min-h-0"
+                >
                   {/* Copy feedback */}
                   {messageActions.copyFeedback && (
                     <div className="fixed top-20 right-4 z-50 bg-green-600 text-white px-3 py-2 rounded-md shadow-lg text-sm">
@@ -747,167 +947,8 @@ export default function ChatPage() {
                     </div>
                   )}
 
-                  {messages.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-full text-center py-20">
-                      <Bot className="h-12 w-12 text-muted-foreground mb-4" />
-                      <h2 className="text-xl font-semibold mb-2">
-                        Welcome to Claude API Chat
-                      </h2>
-                      <p className="text-muted-foreground mb-4">
-                        Start a conversation with Claude by typing a message
-                        below.
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        Your conversations will be automatically saved and can
-                        be accessed from the sidebar.
-                      </p>
-                    </div>
-                  ) : (
-                    messages.map((message, index) => (
-                      <div
-                        key={message.id}
-                        className={cn(
-                          "flex w-full group relative",
-                          message.role === "user"
-                            ? "justify-end"
-                            : "justify-start"
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "flex max-w-[85%] space-x-3 relative",
-                            message.role === "user"
-                              ? "flex-row-reverse space-x-reverse"
-                              : "flex-row"
-                          )}
-                        >
-                          {/* Avatar */}
-                          <div
-                            className={cn(
-                              "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center",
-                              message.role === "user"
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-secondary text-secondary-foreground"
-                            )}
-                          >
-                            {message.role === "user" ? (
-                              <User className="h-4 w-4" />
-                            ) : (
-                              <Bot className="h-4 w-4" />
-                            )}
-                          </div>
-
-                          {/* Message Content */}
-                          <div className="relative w-full">
-                            <Card
-                              className={cn(
-                                "p-4",
-                                message.role === "user"
-                                  ? "bg-muted/50 dark:bg-muted/30"
-                                  : "bg-transparent border-none shadow-none"
-                              )}
-                            >
-                              {messageActions.isEditing(index) ? (
-                                <EditMessageButton
-                                  message={message}
-                                  messageIndex={index}
-                                  onEdit={messageActions.handleEdit}
-                                  isEditing={true}
-                                  onStartEdit={() =>
-                                    messageActions.startEdit(index)
-                                  }
-                                  onCancelEdit={messageActions.cancelEdit}
-                                />
-                              ) : (
-                                <>
-                                  {message.role === "assistant" ? (
-                                    <MarkdownMessage
-                                      content={message.content}
-                                      isDark={isDark}
-                                      onCodeBlockClick={handleCodeBlockClick}
-                                    />
-                                  ) : (
-                                    <div className="prose prose-sm max-w-none dark:prose-invert">
-                                      <p className="whitespace-pre-wrap m-0">
-                                        {message.content}
-                                      </p>
-                                    </div>
-                                  )}
-
-                                  {/* Display file attachments */}
-                                  {message.files &&
-                                    message.files.length > 0 && (
-                                      <MessageFiles
-                                        files={message.files}
-                                        messageRole={message.role}
-                                      />
-                                    )}
-
-                                  <div
-                                    className={cn(
-                                      "text-xs mt-2 opacity-70 flex items-center justify-between",
-                                      "text-muted-foreground"
-                                    )}
-                                  >
-                                    <span>
-                                      {message.timestamp.toLocaleTimeString()}
-                                    </span>
-                                    <TokenDisplay
-                                      content={message.content}
-                                      role={message.role}
-                                      showInline
-                                      className="ml-2"
-                                    />
-                                  </div>
-                                </>
-                              )}
-                            </Card>
-
-                            {/* Action Buttons - positioned below the message */}
-                            {!messageActions.isEditing(index) && (
-                              <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 justify-end">
-                                {/* Copy button for all messages */}
-                                <CopyMessageButton
-                                  content={message.content}
-                                  onCopy={messageActions.handleCopy}
-                                />
-
-                                {/* Edit button for user messages only */}
-                                <EditMessageButton
-                                  message={message}
-                                  messageIndex={index}
-                                  onEdit={messageActions.handleEdit}
-                                  isEditing={false}
-                                  onStartEdit={() =>
-                                    messageActions.startEdit(index)
-                                  }
-                                  onCancelEdit={messageActions.cancelEdit}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-
-                  {/* Loading Indicator */}
-                  {isLoading && (
-                    <div className="flex justify-start">
-                      <div className="flex max-w-[85%] space-x-3">
-                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center">
-                          <Bot className="h-4 w-4" />
-                        </div>
-                        <Card className="p-4 bg-transparent border-none shadow-none">
-                          <div className="flex space-x-1">
-                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
-                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.1s]"></div>
-                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                          </div>
-                        </Card>
-                      </div>
-                    </div>
-                  )}
+                  {renderedMessages}
+                  {loadingIndicator}
 
                   <div ref={messagesEndRef} />
                 </div>

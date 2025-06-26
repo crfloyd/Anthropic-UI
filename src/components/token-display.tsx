@@ -1,7 +1,7 @@
 // src/components/token-display.tsx
 "use client";
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   Tooltip,
@@ -29,13 +29,18 @@ export const TokenDisplay = memo(
     showInline = false,
     className,
   }: TokenDisplayProps) => {
-    const tokens = countTokens(content);
-    const cost = calculateCost(
-      tokens,
-      model,
-      role === "user" ? "input" : "output"
-    );
-    const costFormatted = formatCost(cost);
+    // Memoize expensive calculations
+    const { tokens, cost, costFormatted } = useMemo(() => {
+      const tokens = countTokens(content);
+      const cost = calculateCost(
+        tokens,
+        model,
+        role === "user" ? "input" : "output"
+      );
+      const costFormatted = formatCost(cost);
+
+      return { tokens, cost, costFormatted };
+    }, [content, model, role]);
 
     if (tokens === 0) return null;
 
