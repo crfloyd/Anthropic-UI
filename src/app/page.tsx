@@ -29,6 +29,8 @@ import { CopyMessageButton } from "@/components/copy-message-button";
 import { EditMessageButton } from "@/components/edit-message-button";
 import { FileUpload, UploadedFile } from "@/components/file-upload";
 import { MessageFiles, FileAttachment } from "@/components/message-files";
+import { ArtifactCanvas, ArtifactData } from "@/components/artifact-canvas";
+import { ResizableLayout } from "@/components/resizable-layout";
 import { getContextStatus, MessageWithTokens } from "@/lib/tokens";
 import { useSettings } from "@/lib/settings";
 import { useMessageActions } from "@/hooks/use-message-actions";
@@ -65,6 +67,10 @@ export default function ChatPage() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [isCanvasOpen, setIsCanvasOpen] = useState(false);
+  const [currentArtifact, setCurrentArtifact] = useState<ArtifactData | null>(
+    null
+  );
   const { settings } = useSettings();
 
   // Message actions hook (simplified)
@@ -544,6 +550,59 @@ export default function ChatPage() {
     setIsExportOpen(!isExportOpen);
   };
 
+  const handleCodeBlockClick = (
+    code: string,
+    language: string,
+    title?: string
+  ) => {
+    const artifact: ArtifactData = {
+      id: Date.now().toString(),
+      title: title || `${language} Code`,
+      language: language || "text",
+      content: code,
+      filename: `code.${getFileExtension(language)}`,
+    };
+    setCurrentArtifact(artifact);
+    setIsCanvasOpen(true);
+  };
+
+  const getFileExtension = (language: string): string => {
+    const extensions: Record<string, string> = {
+      javascript: "js",
+      typescript: "ts",
+      jsx: "jsx",
+      tsx: "tsx",
+      python: "py",
+      html: "html",
+      css: "css",
+      json: "json",
+      markdown: "md",
+      yaml: "yml",
+      xml: "xml",
+    };
+    return extensions[language.toLowerCase()] || "txt";
+  };
+
+  const handleCanvasClose = () => {
+    // The ResizableLayout handles the animation, we just update the state
+    setIsCanvasOpen(false);
+    // Optionally clear the artifact after animation completes
+    setTimeout(() => {
+      if (!isCanvasOpen) {
+        setCurrentArtifact(null);
+      }
+    }, 350);
+  };
+
+  const handleArtifactContentChange = (content: string) => {
+    if (currentArtifact) {
+      setCurrentArtifact({
+        ...currentArtifact,
+        content,
+      });
+    }
+  };
+
   // Prepare conversation data for export
   const exportConversation =
     currentConversationId && messages.length > 0
@@ -574,7 +633,7 @@ export default function ChatPage() {
   return (
     <div
       className={cn(
-        "min-h-screen bg-background text-foreground overflow-x-hidden",
+        "min-h-screen bg-background text-foreground overflow-hidden",
         isDark && "dark"
       )}
     >
@@ -587,322 +646,350 @@ export default function ChatPage() {
         onToggle={toggleSidebar}
       />
 
-      {/* Main Chat Area */}
+      {/* Main Layout - Full Width Container */}
       <div
         className={cn(
-          "transition-all duration-300 ease-in-out overflow-x-hidden",
+          "h-screen flex transition-all duration-300 ease-in-out",
           isSidebarOpen ? "md:ml-72" : "ml-0"
         )}
       >
-        {/* Header */}
-        <header className="border-b border-border bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-card/60">
-          <div className="w-full px-4 py-3 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleSidebar}
-                className="hidden md:flex"
-              >
-                <Menu className="h-4 w-4" />
-              </Button>
-              <Bot className="h-6 w-6 text-primary" />
-              <h1 className="text-xl font-semibold">Claude API Chat</h1>
-              {currentConversationId && (
-                <span className="text-sm text-muted-foreground">
-                  • Conversation saved
-                </span>
-              )}
-              {messages.length > 0 && (
-                <ConversationStats
-                  messages={messages}
-                  className="hidden sm:flex"
-                />
-              )}
-            </div>
-            <div className="flex items-center space-x-2">
-              {/* Export button - show when we have messages */}
-              {messages.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={toggleExport}
-                  className="rounded-full"
-                  title="Export Conversation"
-                >
-                  <Download className="h-4 w-4" />
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleContextManager}
-                className={cn(
-                  "rounded-full",
-                  contextStatus.status === "emergency" &&
-                    "text-red-600 animate-pulse",
-                  contextStatus.status === "critical" && "text-orange-600",
-                  contextStatus.status === "warning" && "text-yellow-600"
-                )}
-                title="Context Management"
-              >
-                <BarChart3 className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleTheme}
-                className="rounded-full"
-              >
-                {isDark ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-full"
-                onClick={toggleSettings}
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </header>
-
-        {/* Chat Container */}
-        <div className="container mx-auto max-w-4xl px-4 py-6 flex flex-col h-[calc(100vh-80px)]">
-          {/* Context Manager Modal */}
-          {isContextManagerOpen && (
-            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-              <ContextManager
-                messages={messagesWithTokens}
-                onTrimConversation={handleTrimConversation}
-                onClose={() => setIsContextManagerOpen(false)}
-              />
-            </div>
-          )}
-
-          {/* Settings Panel */}
-          <SettingsPanel
-            isOpen={isSettingsOpen}
-            onClose={() => setIsSettingsOpen(false)}
-          />
-
-          {/* Export Dialog */}
-          <ExportDialog
-            isOpen={isExportOpen}
-            onClose={() => setIsExportOpen(false)}
-            conversation={exportConversation}
-          />
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto space-y-4 mb-4 relative">
-            {/* Copy feedback */}
-            {messageActions.copyFeedback && (
-              <div className="fixed top-20 right-4 z-50 bg-green-600 text-white px-3 py-2 rounded-md shadow-lg text-sm">
-                {messageActions.copyFeedback}
-              </div>
-            )}
-
-            {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center py-20">
-                <Bot className="h-12 w-12 text-muted-foreground mb-4" />
-                <h2 className="text-xl font-semibold mb-2">
-                  Welcome to Claude API Chat
-                </h2>
-                <p className="text-muted-foreground mb-4">
-                  Start a conversation with Claude by typing a message below.
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Your conversations will be automatically saved and can be
-                  accessed from the sidebar.
-                </p>
-              </div>
-            ) : (
-              messages.map((message, index) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "flex w-full group relative",
-                    message.role === "user" ? "justify-end" : "justify-start"
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "flex max-w-[85%] space-x-3 relative",
-                      message.role === "user"
-                        ? "flex-row-reverse space-x-reverse"
-                        : "flex-row"
-                    )}
-                  >
-                    {/* Avatar */}
-                    <div
-                      className={cn(
-                        "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center",
-                        message.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary text-secondary-foreground"
-                      )}
+        <ResizableLayout
+          isRightPanelOpen={isCanvasOpen}
+          leftPanel={
+            <div className="flex flex-col h-full">
+              {/* Header */}
+              <header className="border-b border-border bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-card/60 flex-shrink-0">
+                <div className="w-full px-4 py-3 flex items-center justify-between">
+                  <div className="flex items-center space-x-3">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleSidebar}
+                      className="hidden md:flex"
                     >
-                      {message.role === "user" ? (
-                        <User className="h-4 w-4" />
-                      ) : (
-                        <Bot className="h-4 w-4" />
-                      )}
-                    </div>
-
-                    {/* Message Content */}
-                    <div className="relative w-full">
-                      <Card
-                        className={cn(
-                          "p-4",
-                          message.role === "user"
-                            ? "bg-muted/50 dark:bg-muted/30"
-                            : "bg-transparent border-none shadow-none"
-                        )}
+                      <Menu className="h-4 w-4" />
+                    </Button>
+                    <Bot className="h-6 w-6 text-primary" />
+                    <h1 className="text-xl font-semibold">Claude API Chat</h1>
+                    {currentConversationId && (
+                      <span className="text-sm text-muted-foreground">
+                        • Conversation saved
+                      </span>
+                    )}
+                    {messages.length > 0 && (
+                      <ConversationStats
+                        messages={messages}
+                        className="hidden sm:flex"
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {/* Export button - show when we have messages */}
+                    {messages.length > 0 && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={toggleExport}
+                        className="rounded-full"
+                        title="Export Conversation"
                       >
-                        {messageActions.isEditing(index) ? (
-                          <EditMessageButton
-                            message={message}
-                            messageIndex={index}
-                            onEdit={messageActions.handleEdit}
-                            isEditing={true}
-                            onStartEdit={() => messageActions.startEdit(index)}
-                            onCancelEdit={messageActions.cancelEdit}
-                          />
-                        ) : (
-                          <>
-                            {message.role === "assistant" ? (
-                              <MarkdownMessage
-                                content={message.content}
-                                isDark={isDark}
-                              />
-                            ) : (
-                              <div className="prose prose-sm max-w-none dark:prose-invert">
-                                <p className="whitespace-pre-wrap m-0">
-                                  {message.content}
-                                </p>
-                              </div>
-                            )}
-
-                            {/* Display file attachments */}
-                            {message.files && message.files.length > 0 && (
-                              <MessageFiles
-                                files={message.files}
-                                messageRole={message.role}
-                              />
-                            )}
-
-                            <div
-                              className={cn(
-                                "text-xs mt-2 opacity-70 flex items-center justify-between",
-                                "text-muted-foreground"
-                              )}
-                            >
-                              <span>
-                                {message.timestamp.toLocaleTimeString()}
-                              </span>
-                              <TokenDisplay
-                                content={message.content}
-                                role={message.role}
-                                showInline
-                                className="ml-2"
-                              />
-                            </div>
-                          </>
-                        )}
-                      </Card>
-
-                      {/* Action Buttons - positioned below the message */}
-                      {!messageActions.isEditing(index) && (
-                        <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 justify-end">
-                          {/* Copy button for all messages */}
-                          <CopyMessageButton
-                            content={message.content}
-                            onCopy={messageActions.handleCopy}
-                          />
-
-                          {/* Edit button for user messages only */}
-                          <EditMessageButton
-                            message={message}
-                            messageIndex={index}
-                            onEdit={messageActions.handleEdit}
-                            isEditing={false}
-                            onStartEdit={() => messageActions.startEdit(index)}
-                            onCancelEdit={messageActions.cancelEdit}
-                          />
-                        </div>
+                        <Download className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleContextManager}
+                      className={cn(
+                        "rounded-full",
+                        contextStatus.status === "emergency" &&
+                          "text-red-600 animate-pulse",
+                        contextStatus.status === "critical" &&
+                          "text-orange-600",
+                        contextStatus.status === "warning" && "text-yellow-600"
                       )}
-                    </div>
+                      title="Context Management"
+                    >
+                      <BarChart3 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleTheme}
+                      className="rounded-full"
+                    >
+                      {isDark ? (
+                        <Sun className="h-4 w-4" />
+                      ) : (
+                        <Moon className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="rounded-full"
+                      onClick={toggleSettings}
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
-              ))
-            )}
+              </header>
 
-            {/* Loading Indicator */}
-            {isLoading && (
-              <div className="flex justify-start">
-                <div className="flex max-w-[85%] space-x-3">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center">
-                    <Bot className="h-4 w-4" />
-                  </div>
-                  <Card className="p-4 bg-card">
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.1s]"></div>
-                      <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.2s]"></div>
+              {/* Chat Container */}
+              <div className="flex flex-col flex-1 max-w-4xl mx-auto px-4 py-6 w-full min-h-0">
+                {/* Messages */}
+                <div className="flex-1 overflow-y-auto space-y-4 mb-4 relative min-h-0">
+                  {/* Copy feedback */}
+                  {messageActions.copyFeedback && (
+                    <div className="fixed top-20 right-4 z-50 bg-green-600 text-white px-3 py-2 rounded-md shadow-lg text-sm">
+                      {messageActions.copyFeedback}
                     </div>
+                  )}
+
+                  {messages.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center py-20">
+                      <Bot className="h-12 w-12 text-muted-foreground mb-4" />
+                      <h2 className="text-xl font-semibold mb-2">
+                        Welcome to Claude API Chat
+                      </h2>
+                      <p className="text-muted-foreground mb-4">
+                        Start a conversation with Claude by typing a message
+                        below.
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Your conversations will be automatically saved and can
+                        be accessed from the sidebar.
+                      </p>
+                    </div>
+                  ) : (
+                    messages.map((message, index) => (
+                      <div
+                        key={message.id}
+                        className={cn(
+                          "flex w-full group relative",
+                          message.role === "user"
+                            ? "justify-end"
+                            : "justify-start"
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "flex max-w-[85%] space-x-3 relative",
+                            message.role === "user"
+                              ? "flex-row-reverse space-x-reverse"
+                              : "flex-row"
+                          )}
+                        >
+                          {/* Avatar */}
+                          <div
+                            className={cn(
+                              "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center",
+                              message.role === "user"
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-secondary text-secondary-foreground"
+                            )}
+                          >
+                            {message.role === "user" ? (
+                              <User className="h-4 w-4" />
+                            ) : (
+                              <Bot className="h-4 w-4" />
+                            )}
+                          </div>
+
+                          {/* Message Content */}
+                          <div className="relative w-full">
+                            <Card
+                              className={cn(
+                                "p-4",
+                                message.role === "user"
+                                  ? "bg-muted/50 dark:bg-muted/30"
+                                  : "bg-transparent border-none shadow-none"
+                              )}
+                            >
+                              {messageActions.isEditing(index) ? (
+                                <EditMessageButton
+                                  message={message}
+                                  messageIndex={index}
+                                  onEdit={messageActions.handleEdit}
+                                  isEditing={true}
+                                  onStartEdit={() =>
+                                    messageActions.startEdit(index)
+                                  }
+                                  onCancelEdit={messageActions.cancelEdit}
+                                />
+                              ) : (
+                                <>
+                                  {message.role === "assistant" ? (
+                                    <MarkdownMessage
+                                      content={message.content}
+                                      isDark={isDark}
+                                      onCodeBlockClick={handleCodeBlockClick}
+                                    />
+                                  ) : (
+                                    <div className="prose prose-sm max-w-none dark:prose-invert">
+                                      <p className="whitespace-pre-wrap m-0">
+                                        {message.content}
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {/* Display file attachments */}
+                                  {message.files &&
+                                    message.files.length > 0 && (
+                                      <MessageFiles
+                                        files={message.files}
+                                        messageRole={message.role}
+                                      />
+                                    )}
+
+                                  <div
+                                    className={cn(
+                                      "text-xs mt-2 opacity-70 flex items-center justify-between",
+                                      "text-muted-foreground"
+                                    )}
+                                  >
+                                    <span>
+                                      {message.timestamp.toLocaleTimeString()}
+                                    </span>
+                                    <TokenDisplay
+                                      content={message.content}
+                                      role={message.role}
+                                      showInline
+                                      className="ml-2"
+                                    />
+                                  </div>
+                                </>
+                              )}
+                            </Card>
+
+                            {/* Action Buttons - positioned below the message */}
+                            {!messageActions.isEditing(index) && (
+                              <div className="flex items-center gap-1 mt-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 justify-end">
+                                {/* Copy button for all messages */}
+                                <CopyMessageButton
+                                  content={message.content}
+                                  onCopy={messageActions.handleCopy}
+                                />
+
+                                {/* Edit button for user messages only */}
+                                <EditMessageButton
+                                  message={message}
+                                  messageIndex={index}
+                                  onEdit={messageActions.handleEdit}
+                                  isEditing={false}
+                                  onStartEdit={() =>
+                                    messageActions.startEdit(index)
+                                  }
+                                  onCancelEdit={messageActions.cancelEdit}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+
+                  {/* Loading Indicator */}
+                  {isLoading && (
+                    <div className="flex justify-start">
+                      <div className="flex max-w-[85%] space-x-3">
+                        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-secondary text-secondary-foreground flex items-center justify-center">
+                          <Bot className="h-4 w-4" />
+                        </div>
+                        <Card className="p-4 bg-transparent border-none shadow-none">
+                          <div className="flex space-x-1">
+                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
+                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.1s]"></div>
+                            <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                          </div>
+                        </Card>
+                      </div>
+                    </div>
+                  )}
+
+                  <div ref={messagesEndRef} />
+                </div>
+
+                {/* Input Form */}
+                <div className="flex-shrink-0 w-full">
+                  <Card className="p-4">
+                    {/* File Upload Component */}
+                    <FileUpload
+                      files={uploadedFiles}
+                      onFilesChange={setUploadedFiles}
+                      disabled={isLoading}
+                      className="mb-2"
+                    />
+
+                    <form onSubmit={handleSubmit} className="flex space-x-2">
+                      <div className="flex-1">
+                        <Textarea
+                          ref={textareaRef}
+                          placeholder="Type your message here..."
+                          value={input}
+                          onChange={(e) => setInput(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          onPaste={handlePaste}
+                          disabled={isLoading}
+                          className="min-h-[60px] max-h-[200px] resize-none"
+                          rows={1}
+                        />
+                      </div>
+                      <Button
+                        type="submit"
+                        disabled={
+                          (!input.trim() && uploadedFiles.length === 0) ||
+                          isLoading
+                        }
+                        size="icon"
+                        className="self-end h-[60px] w-[60px]"
+                      >
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </form>
                   </Card>
                 </div>
               </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Input Form */}
-          <div className="max-w-4xl mx-auto w-full">
-            <Card className="p-4">
-              {/* File Upload Component */}
-              <FileUpload
-                files={uploadedFiles}
-                onFilesChange={setUploadedFiles}
-                disabled={isLoading}
-                className="mb-2"
-              />
-
-              <form onSubmit={handleSubmit} className="flex space-x-2">
-                <div className="flex-1">
-                  <Textarea
-                    ref={textareaRef}
-                    placeholder="Type your message here..."
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    onPaste={handlePaste}
-                    disabled={isLoading}
-                    className="min-h-[60px] max-h-[200px] resize-none"
-                    rows={1}
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  disabled={
-                    (!input.trim() && uploadedFiles.length === 0) || isLoading
-                  }
-                  size="icon"
-                  className="self-end h-[60px] w-[60px]"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </form>
-            </Card>
-          </div>
-        </div>
+            </div>
+          }
+          rightPanel={
+            <ArtifactCanvas
+              isOpen={isCanvasOpen}
+              onClose={handleCanvasClose}
+              artifact={currentArtifact}
+              onContentChange={handleArtifactContentChange}
+              isDark={isDark}
+            />
+          }
+        />
       </div>
+
+      {/* Modals - Outside the main layout */}
+      {/* Context Manager Modal */}
+      {isContextManagerOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <ContextManager
+            messages={messagesWithTokens}
+            onTrimConversation={handleTrimConversation}
+            onClose={() => setIsContextManagerOpen(false)}
+          />
+        </div>
+      )}
+
+      {/* Settings Panel */}
+      <SettingsPanel
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+      />
+
+      {/* Export Dialog */}
+      <ExportDialog
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        conversation={exportConversation}
+      />
     </div>
   );
 }
