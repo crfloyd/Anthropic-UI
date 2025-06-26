@@ -1,7 +1,7 @@
 // src/components/markdown-message.tsx
 "use client";
 
-import { memo, useMemo, useCallback, useState, useEffect } from "react";
+import { memo, useMemo, useCallback, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
@@ -34,49 +34,7 @@ const LARGE_CODE_THRESHOLDS = {
   ALWAYS_INLINE_LINES: 5,
 };
 
-// Debounce delay for switching to file attachment mode during streaming
-const STREAMING_DEBOUNCE_MS = 500;
-
-// Hook for debounced large code detection
-function useDebouncedLargeCodeDetection(
-  codeString: string,
-  isActuallyInline: boolean,
-  delay: number = STREAMING_DEBOUNCE_MS
-) {
-  const [isLargeCode, setIsLargeCode] = useState(false);
-
-  // Memoize the calculation to prevent unnecessary recalculations
-  const shouldBeLargeCode = useMemo(() => {
-    if (isActuallyInline) return false;
-
-    const lineCount = codeString.split("\n").length;
-    const characterCount = codeString.length;
-
-    return (
-      (lineCount >= LARGE_CODE_THRESHOLDS.LINES ||
-        characterCount >= LARGE_CODE_THRESHOLDS.CHARACTERS) &&
-      lineCount > LARGE_CODE_THRESHOLDS.ALWAYS_INLINE_LINES
-    );
-  }, [codeString, isActuallyInline]);
-
-  useEffect(() => {
-    // If it should be large code, debounce the switch
-    if (shouldBeLargeCode) {
-      const timer = setTimeout(() => {
-        setIsLargeCode(true);
-      }, delay);
-
-      return () => clearTimeout(timer);
-    } else {
-      // If it shouldn't be large code, switch immediately
-      setIsLargeCode(false);
-    }
-  }, [shouldBeLargeCode, delay]);
-
-  return isLargeCode;
-}
-
-// Memoized file utilities
+// File utilities
 const fileUtils = {
   generateFileName: (language: string, content: string): string => {
     const lines = content.split("\n");
@@ -205,38 +163,53 @@ const CodeBlock = memo(
     const [copied, setCopied] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
 
-    // Memoize all expensive calculations
-    const { match, language, codeString, isActuallyInline, lineCount } =
-      useMemo(() => {
-        const match = /language-(\w+)/.exec(className || "");
-        const language = match ? match[1] : "";
-        const codeString = String(children).replace(/\n$/, "");
-
-        const isActuallyInline =
-          inline ||
-          (!codeString.includes("\n") && codeString.length < 50) ||
-          codeString.length < 20;
-
-        const lineCount = codeString.split("\n").length;
-
-        return { match, language, codeString, isActuallyInline, lineCount };
-      }, [inline, className, children]);
-
-    // Use debounced large code detection
-    const isLargeCode = useDebouncedLargeCodeDetection(
+    // Memoize all calculations - this ensures stability across re-renders
+    const {
+      match,
+      language,
       codeString,
-      isActuallyInline
-    );
+      isActuallyInline,
+      lineCount,
+      isLargeCode,
+      fileMetadata,
+    } = useMemo(() => {
+      const match = /language-(\w+)/.exec(className || "");
+      const language = match ? match[1] : "";
+      const codeString = String(children).replace(/\n$/, "");
 
-    // Memoize file metadata
-    const fileMetadata = useMemo(() => {
-      if (!isLargeCode || !onCodeBlockClick) return null;
+      const isActuallyInline =
+        inline ||
+        (!codeString.includes("\n") && codeString.length < 50) ||
+        codeString.length < 20;
+
+      const lineCount = codeString.split("\n").length;
+
+      // Make the large code decision immediately and permanently
+      const isLargeCode =
+        !isActuallyInline &&
+        onCodeBlockClick &&
+        (lineCount >= LARGE_CODE_THRESHOLDS.LINES ||
+          codeString.length >= LARGE_CODE_THRESHOLDS.CHARACTERS) &&
+        lineCount > LARGE_CODE_THRESHOLDS.ALWAYS_INLINE_LINES;
+
+      // Generate file metadata only if it's large code
+      const fileMetadata = isLargeCode
+        ? {
+            filename: fileUtils.generateFileName(language, codeString),
+            size: fileUtils.formatFileSize(codeString),
+          }
+        : null;
 
       return {
-        filename: fileUtils.generateFileName(language, codeString),
-        size: fileUtils.formatFileSize(codeString),
+        match,
+        language,
+        codeString,
+        isActuallyInline,
+        lineCount,
+        isLargeCode,
+        fileMetadata,
       };
-    }, [isLargeCode, onCodeBlockClick, language, codeString]);
+    }, [inline, className, children, onCodeBlockClick]);
 
     const handleCopy = useCallback(async () => {
       try {
@@ -276,8 +249,8 @@ const CodeBlock = memo(
       );
     }
 
-    // Handle large code as file attachment (only after debounce)
-    if (isLargeCode && onCodeBlockClick && fileMetadata) {
+    // Handle large code as file attachment - decision is made once and never changes
+    if (isLargeCode && fileMetadata) {
       return (
         <CodeFileAttachment
           filename={fileMetadata.filename}
@@ -290,7 +263,7 @@ const CodeBlock = memo(
       );
     }
 
-    // Handle regular code blocks - memoized render
+    // Handle regular code blocks
     return (
       <div
         className="relative group w-full max-w-full mb-4"

@@ -1,7 +1,7 @@
 // src/app/page.tsx
 "use client";
 
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
@@ -221,15 +221,25 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Preserve scroll position when canvas opens/closes
+  // Handle scroll restoration when canvas state changes
   useEffect(() => {
     if (messagesContainerRef.current && savedScrollPosition.current > 0) {
-      const timer = setTimeout(() => {
-        if (messagesContainerRef.current) {
-          messagesContainerRef.current.scrollTop = savedScrollPosition.current;
-        }
-      }, 100);
-      return () => clearTimeout(timer);
+      const container = messagesContainerRef.current;
+
+      // Wait for any layout changes to settle
+      const restoreScroll = () => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (container && savedScrollPosition.current > 0) {
+              container.scrollTop = savedScrollPosition.current;
+            }
+          });
+        });
+      };
+
+      // Delay restoration to ensure layout has settled
+      const timeoutId = setTimeout(restoreScroll, 350);
+      return () => clearTimeout(timeoutId);
     }
   }, [isCanvasOpen]);
 
@@ -564,33 +574,70 @@ export default function ChatPage() {
     setIsExportOpen(!isExportOpen);
   };
 
-  const handleCodeBlockClick = (
-    code: string,
-    language: string,
-    title?: string
-  ) => {
-    // Save current scroll position before opening canvas
-    if (messagesContainerRef.current) {
-      savedScrollPosition.current = messagesContainerRef.current.scrollTop;
-    }
-
-    const artifact: ArtifactData = {
-      id: Date.now().toString(),
-      title: title || `${language} Code`,
-      language: language || "text",
-      content: code,
-      filename: `code.${getFileExtension(language)}`,
-    };
-    setCurrentArtifact(artifact);
-    setIsCanvasOpen(true);
-
-    // Restore scroll position after a brief delay to allow for layout changes
-    setTimeout(() => {
+  const handleCodeBlockClick = useCallback(
+    (code: string, language: string, title?: string) => {
+      // Save current scroll position and ratio before opening canvas
       if (messagesContainerRef.current) {
-        messagesContainerRef.current.scrollTop = savedScrollPosition.current;
+        const container = messagesContainerRef.current;
+        savedScrollPosition.current = container.scrollTop;
+
+        // Also save the scroll ratio for more reliable restoration
+        const scrollRatio =
+          container.scrollTop /
+          (container.scrollHeight - container.clientHeight || 1);
+        sessionStorage.setItem("chat-scroll-ratio", scrollRatio.toString());
       }
-    }, 100);
-  };
+
+      const artifact: ArtifactData = {
+        id: Date.now().toString(),
+        title: title || `${language} Code`,
+        language: language || "text",
+        content: code,
+        filename: `code.${getFileExtension(language)}`,
+      };
+
+      // Set artifact first, then open canvas
+      setCurrentArtifact(artifact);
+      setIsCanvasOpen(true);
+
+      // Restore scroll position after layout settles
+      setTimeout(() => {
+        if (messagesContainerRef.current) {
+          const container = messagesContainerRef.current;
+          const savedRatio = parseFloat(
+            sessionStorage.getItem("chat-scroll-ratio") || "0"
+          );
+
+          // Wait for layout to fully settle, then restore scroll
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              if (savedScrollPosition.current > 0) {
+                // Try both absolute position and ratio-based positioning
+                container.scrollTop = savedScrollPosition.current;
+
+                // If that doesn't work well, try ratio-based
+                setTimeout(() => {
+                  const newScrollHeight =
+                    container.scrollHeight - container.clientHeight;
+                  const ratioBasedPosition = newScrollHeight * savedRatio;
+
+                  // Use whichever is more reasonable
+                  if (
+                    Math.abs(
+                      container.scrollTop - savedScrollPosition.current
+                    ) > 100
+                  ) {
+                    container.scrollTop = ratioBasedPosition;
+                  }
+                }, 50);
+              }
+            });
+          });
+        }
+      }, 100);
+    },
+    []
+  );
 
   const getFileExtension = (language: string): string => {
     const extensions: Record<string, string> = {
@@ -612,22 +659,57 @@ export default function ChatPage() {
   const handleCanvasClose = () => {
     // Save current scroll position before closing canvas
     if (messagesContainerRef.current) {
-      savedScrollPosition.current = messagesContainerRef.current.scrollTop;
+      const container = messagesContainerRef.current;
+      savedScrollPosition.current = container.scrollTop;
+
+      // Save scroll ratio as backup
+      const scrollRatio =
+        container.scrollTop /
+        (container.scrollHeight - container.clientHeight || 1);
+      sessionStorage.setItem("chat-scroll-ratio", scrollRatio.toString());
     }
 
-    // The ResizableLayout handles the animation, we just update the state
+    // Start closing animation
     setIsCanvasOpen(false);
 
-    // Restore scroll position after animation completes
+    // Restore scroll position after animation completes and layout settles
     setTimeout(() => {
       if (messagesContainerRef.current) {
-        messagesContainerRef.current.scrollTop = savedScrollPosition.current;
+        const container = messagesContainerRef.current;
+        const savedRatio = parseFloat(
+          sessionStorage.getItem("chat-scroll-ratio") || "0"
+        );
+
+        // Wait for layout to settle after animation
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (savedScrollPosition.current > 0) {
+              container.scrollTop = savedScrollPosition.current;
+
+              // Double-check scroll position after a short delay
+              setTimeout(() => {
+                const newScrollHeight =
+                  container.scrollHeight - container.clientHeight;
+                const ratioBasedPosition = newScrollHeight * savedRatio;
+
+                // Use ratio-based positioning if absolute positioning seems off
+                if (
+                  Math.abs(container.scrollTop - savedScrollPosition.current) >
+                  100
+                ) {
+                  container.scrollTop = ratioBasedPosition;
+                }
+              }, 50);
+            }
+          });
+        });
       }
-      // Clear the artifact after animation completes
-      if (!isCanvasOpen) {
+
+      // Clear artifact after scroll is restored
+      setTimeout(() => {
         setCurrentArtifact(null);
-      }
-    }, 350);
+      }, 100);
+    }, 300); // Match the animation duration
   };
 
   const handleArtifactContentChange = (content: string) => {
