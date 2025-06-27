@@ -29,11 +29,17 @@ interface ChatHeaderProps {
   messages: Message[];
   contextStatus: ContextStatus;
   isDark: boolean;
+  user?: {
+    name?: string | null;
+    email?: string | null;
+    image?: string | null;
+  };
   onToggleSidebar: () => void;
   onToggleExport: () => void;
   onToggleContextManager: () => void;
   onToggleTheme: () => void;
   onToggleSettings: () => void;
+  onSignOut: () => void;
 }
 
 export const ChatHeader = memo(

@@ -1,15 +1,26 @@
-// src/app/api/conversations/[id]/route.ts
+// app/api/conversations/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-// GET - Fetch specific conversation with messages
+// GET - Fetch specific conversation with messages (only if user owns it)
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const conversation = await prisma.conversation.findUnique({
-      where: { id: params.id },
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const conversation = await prisma.conversation.findFirst({
+      where: {
+        id: params.id,
+        userId: session.user.id, // Ensure user owns this conversation
+      },
       include: {
         messages: {
           orderBy: { timestamp: "asc" },
@@ -34,12 +45,34 @@ export async function GET(
   }
 }
 
-// DELETE - Delete conversation
+// DELETE - Delete conversation (only if user owns it)
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // First check if the conversation exists and belongs to the user
+    const conversation = await prisma.conversation.findFirst({
+      where: {
+        id: params.id,
+        userId: session.user.id,
+      },
+    });
+
+    if (!conversation) {
+      return NextResponse.json(
+        { error: "Conversation not found" },
+        { status: 404 }
+      );
+    }
+
+    // Delete the conversation (messages will be deleted via cascade)
     await prisma.conversation.delete({
       where: { id: params.id },
     });

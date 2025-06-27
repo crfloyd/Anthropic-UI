@@ -143,7 +143,11 @@ export function useConversation() {
   }, []);
 
   const sendMessage = useCallback(
-    async (userMessage: Message, contextMessages?: Message[]) => {
+    async (
+      userMessage: Message,
+      contextMessages?: Message[],
+      apiKey?: string
+    ) => {
       const currentMessages = contextMessages || [...messages, userMessage];
       if (!contextMessages) {
         setMessages((prev) => [...prev, userMessage]);
@@ -176,7 +180,7 @@ export function useConversation() {
             messages: currentMessages,
             conversationId: conversationId,
             settings: {
-              apiKey: settings.apiKey,
+              apiKey: apiKey || settings.apiKey,
               model: settings.model,
               temperature: settings.temperature,
               maxTokens: settings.maxTokens,
@@ -255,8 +259,9 @@ export function useConversation() {
   );
 
   const submitMessage = useCallback(
-    async (input: string, uploadedFiles: UploadedFile[]) => {
-      if ((!input.trim() && uploadedFiles.length === 0) || isLoading) return;
+    async (input: string, uploadedFiles: UploadedFile[], apiKey: string) => {
+      if ((!input.trim() && uploadedFiles.length === 0) || isLoading || !apiKey)
+        return;
 
       const fileAttachments = await processUploadedFiles(uploadedFiles);
       const userMessage: Message = {
@@ -267,15 +272,15 @@ export function useConversation() {
         files: fileAttachments.length > 0 ? fileAttachments : undefined,
       };
 
-      await sendMessage(userMessage);
+      await sendMessage(userMessage, undefined, apiKey);
     },
     [isLoading, processUploadedFiles, sendMessage]
   );
 
   const regenerateFromMessage = useCallback(
-    async (userMessage: Message, index: number) => {
+    async (userMessage: Message, index: number, apiKey?: string) => {
       const contextMessages = messages.slice(0, index + 1);
-      await sendMessage(userMessage, contextMessages);
+      await sendMessage(userMessage, contextMessages, apiKey);
     },
     [messages, sendMessage]
   );

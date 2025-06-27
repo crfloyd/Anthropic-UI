@@ -1,12 +1,9 @@
-// src/app/api/chat/route.ts
+// app/api/chat/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/prisma";
-
-// Initialize Anthropic client
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 interface FileAttachment {
   id: string;
@@ -25,6 +22,12 @@ interface MessageWithFiles {
 
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { messages, conversationId, settings } = await request.json();
 
     if (!messages || !Array.isArray(messages)) {
@@ -34,8 +37,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use API key from request or fallback to environment
-    const apiKey = settings?.apiKey || process.env.ANTHROPIC_API_KEY;
+    // Use API key from request settings (user's encrypted API key)
+    const apiKey = settings?.apiKey;
 
     if (!apiKey) {
       return NextResponse.json(
@@ -44,7 +47,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Initialize Anthropic client with provided API key
+    // Initialize Anthropic client with user's API key
     const anthropic = new Anthropic({
       apiKey: apiKey,
     });
@@ -65,13 +68,26 @@ export async function POST(request: NextRequest) {
 
     // Save user message to database if conversationId provided
     if (conversationId) {
+      // Verify the conversation belongs to the authenticated user
+      const conversation = await prisma.conversation.findFirst({
+        where: {
+          id: conversationId,
+          userId: session.user.id,
+        },
+      });
+
+      if (!conversation) {
+        return NextResponse.json(
+          { error: "Conversation not found or access denied" },
+          { status: 404 }
+        );
+      }
+
       await prisma.message.create({
         data: {
           role: "user",
           content: latestUserMessage.content,
           conversationId: conversationId,
-          // Note: You might want to store file references in a separate table
-          // For now, we'll include file info in the content or metadata
         },
       });
 
@@ -110,8 +126,6 @@ export async function POST(request: NextRequest) {
               } else if (file.type.startsWith("image/")) {
                 // For images, just mention they are attached
                 content += ": [Image file attached]\n";
-                // Note: Claude API doesn't support images yet in this way
-                // You would need to use Claude's vision capabilities separately
               } else {
                 content += ": [File attached - content not readable]\n";
               }

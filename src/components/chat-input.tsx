@@ -18,6 +18,7 @@ interface ChatInputProps {
   onKeyDown: (e: React.KeyboardEvent) => void;
   isLoading: boolean;
   disabled?: boolean;
+  placeholder?: string;
 }
 
 export const ChatInput = memo(

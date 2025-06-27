@@ -1,7 +1,7 @@
 // src/components/settings-panel.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,15 +48,28 @@ import { useSettings } from "@/lib/settings";
 interface SettingsPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  userApiKey: string | null;
+  onApiKeyChange: (apiKey: string | null) => void;
 }
 
-export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+export function SettingsPanel({
+  isOpen,
+  onClose,
+  userApiKey,
+  onApiKeyChange,
+}: SettingsPanelProps) {
   const { settings, updateSettings, manager } = useSettings();
   const [showApiKey, setShowApiKey] = useState(false);
-  const [tempApiKey, setTempApiKey] = useState(settings.apiKey);
+  const [tempApiKey, setTempApiKey] = useState(userApiKey || "");
   const [importData, setImportData] = useState("");
   const [activeTab, setActiveTab] = useState("api");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [isUpdatingApiKey, setIsUpdatingApiKey] = useState(false);
+
+  // Update temp API key when userApiKey changes
+  useEffect(() => {
+    setTempApiKey(userApiKey || "");
+  }, [userApiKey]);
 
   // Validate settings whenever they change
   useEffect(() => {
@@ -79,9 +92,46 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
   if (!isOpen) return null;
 
-  const handleApiKeyChange = (value: string) => {
+  const handleApiKeyChange = async (value: string) => {
     setTempApiKey(value);
-    updateSettings({ apiKey: value });
+
+    // Only save to server if it's a valid API key
+    if (value && manager.validateApiKey(value)) {
+      setIsUpdatingApiKey(true);
+      try {
+        const response = await fetch("/api/user/api-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ apiKey: value }),
+        });
+
+        if (response.ok) {
+          onApiKeyChange(value);
+        } else {
+          console.error("Failed to save API key");
+        }
+      } catch (error) {
+        console.error("Error saving API key:", error);
+      } finally {
+        setIsUpdatingApiKey(false);
+      }
+    } else if (!value) {
+      // If clearing the API key
+      setIsUpdatingApiKey(true);
+      try {
+        const response = await fetch("/api/user/api-key", {
+          method: "DELETE",
+        });
+
+        if (response.ok) {
+          onApiKeyChange(null);
+        }
+      } catch (error) {
+        console.error("Error removing API key:", error);
+      } finally {
+        setIsUpdatingApiKey(false);
+      }
+    }
   };
 
   const handleCodeBlockSettingChange = (key: string, value: number) => {
@@ -116,7 +166,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
     );
   };
 
-  const isApiKeyValid = manager.validateApiKey(settings.apiKey);
+  const isApiKeyValid = manager.validateApiKey(userApiKey || "");
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

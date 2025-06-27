@@ -1,11 +1,22 @@
-// src/app/api/conversations/route.ts
+// app/api/conversations/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-// GET - Fetch all conversations
+// GET - Fetch all conversations for the authenticated user
 export async function GET() {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const conversations = await prisma.conversation.findMany({
+      where: {
+        userId: session.user.id,
+      },
       orderBy: { updatedAt: "desc" },
       include: {
         _count: {
@@ -24,14 +35,21 @@ export async function GET() {
   }
 }
 
-// POST - Create new conversation
+// POST - Create new conversation for the authenticated user
 export async function POST(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { title } = await request.json();
 
     const conversation = await prisma.conversation.create({
       data: {
         title: title || "New Conversation",
+        userId: session.user.id,
       },
     });
 

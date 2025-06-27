@@ -101,7 +101,6 @@ export class SettingsManager {
   validateCodeBlockSettings(newSettings: Partial<Settings>): string[] {
     const errors: string[] = [];
 
-    // Merge with current settings to get complete picture
     const merged = { ...this.settings, ...newSettings };
 
     if (merged.codeBlockMinLines < 1) {

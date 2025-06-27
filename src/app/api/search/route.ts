@@ -1,9 +1,17 @@
-// src/app/api/search/route.ts
+// app/api/search/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export async function GET(request: NextRequest) {
   try {
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("q");
     const limit = parseInt(searchParams.get("limit") || "50");
@@ -19,12 +27,13 @@ export async function GET(request: NextRequest) {
 
     const searchTerm = query.trim().toLowerCase();
 
-    // Search in both conversation titles and message content
+    // Search in both conversation titles and message content (only for user's data)
     const [conversationResults, messageResults, totalCount] = await Promise.all(
       [
-        // Search conversation titles
+        // Search conversation titles for this user
         prisma.conversation.findMany({
           where: {
+            userId: session.user.id,
             title: {
               contains: searchTerm,
             },
@@ -37,11 +46,14 @@ export async function GET(request: NextRequest) {
           orderBy: { updatedAt: "desc" },
         }),
 
-        // Search message content
+        // Search message content for this user's conversations
         prisma.message.findMany({
           where: {
             content: {
               contains: searchTerm,
+            },
+            conversation: {
+              userId: session.user.id,
             },
           },
           include: {
@@ -58,11 +70,14 @@ export async function GET(request: NextRequest) {
           take: limit,
         }),
 
-        // Get total count for pagination
+        // Get total count for pagination (only for user's messages)
         prisma.message.count({
           where: {
             content: {
               contains: searchTerm,
+            },
+            conversation: {
+              userId: session.user.id,
             },
           },
         }),
